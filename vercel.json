@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/game.js"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/index.html"
+    }
+  ],
+  "functions": {
+    "api/game.js": {
+      "maxDuration": 30
+    }
+  }
+}
