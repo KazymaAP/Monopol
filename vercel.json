@@ -6,13 +6,23 @@
       "dest": "/api/game.js"
     },
     {
+      "src": "/public/(.+\\.(js|css|png|jpg|svg|ico|woff2?))",
+      "dest": "/public/$1",
+      "headers": {
+        "Cache-Control": "public, max-age=3600, immutable"
+      }
+    },
+    {
       "src": "/(.*)",
-      "dest": "/public/index.html"
+      "dest": "/public/index.html",
+      "headers": {
+        "Cache-Control": "no-cache"
+      }
     }
   ],
   "functions": {
     "api/game.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     }
   }
 }

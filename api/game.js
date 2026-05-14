@@ -163,6 +163,8 @@ function createRoom(hostId, hostName, settings = {}) {
       startingMoney: settings.startingMoney || 1500,
       auctionTimer: settings.auctionTimer || 10,
       requireFullGroup: settings.requireFullGroup !== false,
+      // [NEW] Inactivity timeout setting (default 60 seconds)
+      inactivityTimeout: settings.inactivityTimeout || 60,
     },
     state: 'lobby',
     players: [{
@@ -175,7 +177,9 @@ function createRoom(hostId, hostName, settings = {}) {
       jailCards: 0,
       bankrupt: false,
       doublesCount: 0,
-      color: '#e74c3c'
+      color: '#e74c3c',
+      // [NEW] Counter for consecutive missed turns (inactivity)
+      consecutiveMisses: 0,
     }],
     properties: {},
     currentPlayerIndex: 0,
@@ -191,6 +195,10 @@ function createRoom(hostId, hostName, settings = {}) {
     chanceIndex: 0,
     chestIndex: 0,
     bankruptAuctionQueue: null,
+    // [NEW] Chat messages array (max 50)
+    chat: [],
+    // [NEW] Last action timestamps per player for inactivity tracking
+    lastActionTime: {},
   };
   return room;
 }
@@ -207,7 +215,57 @@ function getActivePlayers(room) {
   return room.players.filter(p => !p.bankrupt);
 }
 
+// [NEW] Record player activity timestamp and reset consecutiveMisses
+function recordPlayerAction(room, playerId) {
+  if (!room.lastActionTime) room.lastActionTime = {};
+  room.lastActionTime[playerId] = Date.now();
+  const player = getPlayerById(room, playerId);
+  if (player) {
+    player.consecutiveMisses = 0;
+  }
+}
+
+// [NEW] Check if the current player has been inactive too long; handle skip/bankrupt
+function checkInactivity(room) {
+  if (room.state !== 'playing') return;
+  const activePlayers = getActivePlayers(room);
+  if (activePlayers.length <= 1) return;
+
+  const currentPlayer = getActivePlayer(room);
+  if (!currentPlayer || currentPlayer.bankrupt) return;
+
+  const timeout = (room.settings.inactivityTimeout || 60) * 1000;
+  if (!room.lastActionTime) room.lastActionTime = {};
+  const lastAction = room.lastActionTime[currentPlayer.id] || room.lastUpdate;
+  const elapsed = Date.now() - lastAction;
+
+  if (elapsed >= timeout) {
+    currentPlayer.consecutiveMisses = (currentPlayer.consecutiveMisses || 0) + 1;
+
+    if (currentPlayer.consecutiveMisses >= 2) {
+      // Second consecutive miss — auto-bankrupt (method 'bank')
+      addNotification(room, `${currentPlayer.name} автоматически обанкрочен за бездействие`);
+      handleAutomaticBankruptcy(room, currentPlayer.id, 'bank');
+    } else {
+      // First miss — skip turn
+      addNotification(room, `${currentPlayer.name} пропускает ход (бездействие)`);
+      // If player was in a debt situation, auto-bankrupt since they can't act
+      if (room.turnPhase === 'manage') {
+        addNotification(room, `${currentPlayer.name} не погасил долг — банкротство`);
+        handleAutomaticBankruptcy(room, currentPlayer.id, 'bank');
+      } else {
+        nextTurnInternal(room);
+      }
+    }
+  }
+}
+
 function nextTurn(room) {
+  nextTurnInternal(room);
+}
+
+// [REFACTORED] Internal nextTurn to avoid recursion issues with inactivity
+function nextTurnInternal(room) {
   const activePlayers = getActivePlayers(room);
   if (activePlayers.length <= 1) {
     room.state = 'finished';
@@ -227,6 +285,10 @@ function nextTurn(room) {
   room.currentPlayerIndex = next;
   room.turnPhase = 'roll';
   room.players[next].doublesCount = 0;
+
+  // [NEW] Set initial action time for the new current player so inactivity timer starts now
+  if (!room.lastActionTime) room.lastActionTime = {};
+  room.lastActionTime[room.players[next].id] = Date.now();
 }
 
 function addNotification(room, text) {
@@ -312,7 +374,6 @@ function distributeRent(room, cellId, rentAmount, payerId) {
   const deal = getMonopolyDealForCell(room, cellId);
   const prop = room.properties[cellId];
 
-  // Only distribute through deal if the payer is NOT in the deal and the owner IS
   if (deal && !deal.members.includes(payerId) && deal.members.includes(prop.ownerId)) {
     if (deal.splitType === 'equal') {
       const share = Math.floor(rentAmount / deal.members.length);
@@ -508,9 +569,65 @@ function calculateResidualValue(room, playerId) {
   return value;
 }
 
+// ============================================================
+// [NEW] handleAutomaticBankruptcy — declares bankruptcy with 'bank' method
+// Used by inactivity system, debt auto-check, and kick.
+// ============================================================
+function handleAutomaticBankruptcy(room, playerId, method) {
+  const player = getPlayerById(room, playerId);
+  if (!player || player.bankrupt) return;
+
+  const ownedProps = Object.entries(room.properties).filter(([, p]) => p.ownerId === playerId);
+
+  // Remove all properties (return to bank)
+  ownedProps.forEach(([cellId]) => {
+    delete room.properties[cellId];
+  });
+
+  player.bankrupt = true;
+  player.balance = 0;
+  cleanupBankruptPlayer(room, playerId);
+
+  addNotification(room, `${player.name} банкрот! Имущество возвращено в банк.`);
+
+  // If this player was the current player, advance the turn
+  if (getActivePlayer(room)?.id === playerId) {
+    // Clear any debt/manage state
+    room.debtInfo = null;
+    nextTurn(room);
+  } else {
+    checkWinConditionAfterBankruptcy(room);
+    // If another player was in manage phase and this resolved it, clear
+    if (room.turnPhase === 'manage') {
+      const current = getActivePlayer(room);
+      if (current && current.balance >= 0) {
+        room.turnPhase = 'endturn';
+        room.debtInfo = null;
+      }
+    }
+  }
+}
+
+// ============================================================
+// [NEW] Post-debt check helper: after sellhouse/mortgage,
+// check if debt is resolved, or if recovery is impossible.
+// ============================================================
+function checkDebtResolution(room, player) {
+  if (room.turnPhase !== 'manage') return;
+
+  if (player.balance >= 0) {
+    // Debt resolved
+    room.turnPhase = 'endturn';
+    room.debtInfo = null;
+  } else if (!canPlayerRecoverServer(room, player)) {
+    // Cannot recover — auto-bankrupt
+    handleAutomaticBankruptcy(room, player.id, 'bank');
+  }
+  // else: still in manage phase, player can continue selling/mortgaging
+}
+
 /**
  * Check and auto-complete auction if timer expired.
- * Called on every state request and before auction-related operations.
  */
 function checkAuctionExpiry(room) {
   if (room.turnPhase !== 'auction' || !room.auction) return false;
@@ -665,7 +782,9 @@ module.exports = async function handler(req, res) {
           jailCards: 0,
           bankrupt: false,
           doublesCount: 0,
-          color: colors[room.players.length % colors.length]
+          color: colors[room.players.length % colors.length],
+          // [NEW] Initialize consecutiveMisses for new player
+          consecutiveMisses: 0,
         });
         room.lastUpdate = Date.now();
         addNotification(room, `${playerName} присоединился к игре`);
@@ -687,6 +806,13 @@ module.exports = async function handler(req, res) {
         room.chestIndex = Math.floor(Math.random() * CHEST_CARDS.length);
         addNotification(room, 'Игра началась!');
         room.lastUpdate = Date.now();
+        // [NEW] Initialize action times for all players
+        room.lastActionTime = {};
+        room.players.forEach(p => {
+          room.lastActionTime[p.id] = Date.now();
+          p.consecutiveMisses = 0;
+        });
+        recordPlayerAction(room, playerId);
         await setRoom(roomId, room);
         return res.json({ success: true, room });
       }
@@ -699,11 +825,23 @@ module.exports = async function handler(req, res) {
         if (!room) return res.status(404).json({ error: 'Room not found' });
 
         const auctionCompleted = checkAuctionExpiry(room);
-        if (auctionCompleted) {
+
+        // [NEW] Check inactivity on every state poll
+        let inactivityChanged = false;
+        if (room.state === 'playing' && room.turnPhase !== 'auction') {
+          const beforePhase = room.turnPhase;
+          const beforeIndex = room.currentPlayerIndex;
+          checkInactivity(room);
+          if (beforePhase !== room.turnPhase || beforeIndex !== room.currentPlayerIndex) {
+            inactivityChanged = true;
+          }
+        }
+
+        if (auctionCompleted || inactivityChanged) {
           await setRoom(roomId, room);
         }
 
-        if (clientLastUpdate && clientLastUpdate >= room.lastUpdate && !auctionCompleted) {
+        if (clientLastUpdate && clientLastUpdate >= room.lastUpdate && !auctionCompleted && !inactivityChanged) {
           return res.json({ success: true, notModified: true });
         }
 
@@ -717,12 +855,14 @@ module.exports = async function handler(req, res) {
         if (!room) return res.status(404).json({ error: 'Room not found' });
         if (room.state !== 'playing') return res.status(400).json({ error: 'Game not active' });
 
-        // Auto-complete expired auction if any
         checkAuctionExpiry(room);
 
         const currentPlayer = getActivePlayer(room);
         if (currentPlayer.id !== playerId) return res.status(403).json({ error: 'Not your turn' });
         if (room.turnPhase !== 'roll') return res.status(400).json({ error: 'Cannot roll now' });
+
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
 
         const dice = rollDice();
         room.lastDice = dice;
@@ -733,7 +873,6 @@ module.exports = async function handler(req, res) {
           if (isDoubles) {
             currentPlayer.inJail = false;
             currentPlayer.jailTurns = 0;
-            // After exiting jail via doubles, player gets the move but counts as a double for extra turn
             currentPlayer.doublesCount = 1;
             currentPlayer.position = (currentPlayer.position + diceSum) % 40;
             addNotification(room, `${currentPlayer.name} выбросил дубль и вышел из тюрьмы!`);
@@ -803,6 +942,9 @@ module.exports = async function handler(req, res) {
         if (!currentPlayer.inJail) return res.status(400).json({ error: 'Not in jail' });
         if (room.turnPhase !== 'roll') return res.status(400).json({ error: 'Cannot act now' });
 
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
         currentPlayer.balance -= 50;
         currentPlayer.inJail = false;
         currentPlayer.jailTurns = 0;
@@ -826,6 +968,9 @@ module.exports = async function handler(req, res) {
         if (currentPlayer.id !== playerId) return res.status(403).json({ error: 'Not your turn' });
         if (!currentPlayer.inJail || !currentPlayer.jailCards) return res.status(400).json({ error: 'Cannot use card' });
 
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
         currentPlayer.jailCards--;
         currentPlayer.inJail = false;
         currentPlayer.jailTurns = 0;
@@ -844,6 +989,9 @@ module.exports = async function handler(req, res) {
         const currentPlayer = getActivePlayer(room);
         if (currentPlayer.id !== playerId) return res.status(403).json({ error: 'Not your turn' });
         if (room.turnPhase !== 'buy') return res.status(400).json({ error: 'Cannot buy now' });
+
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
 
         const cell = BOARD[currentPlayer.position];
         if (currentPlayer.balance < cell.price) return res.status(400).json({ error: 'Not enough money' });
@@ -867,6 +1015,9 @@ module.exports = async function handler(req, res) {
         if (currentPlayer.id !== playerId) return res.status(403).json({ error: 'Not your turn' });
         if (room.turnPhase !== 'buy') return res.status(400).json({ error: 'Cannot start auction now' });
 
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
         const cell = BOARD[currentPlayer.position];
         room.auction = {
           cellId: cell.id,
@@ -889,7 +1040,6 @@ module.exports = async function handler(req, res) {
         const room = await getRoom(roomId);
         if (!room) return res.status(404).json({ error: 'Room not found' });
 
-        // Check if auction already expired before processing bid
         const justExpired = checkAuctionExpiry(room);
         if (justExpired) {
           await setRoom(roomId, room);
@@ -898,6 +1048,9 @@ module.exports = async function handler(req, res) {
 
         if (room.turnPhase !== 'auction' || !room.auction) return res.status(400).json({ error: 'No auction active' });
         if (playerId === room.auction.initiatorId) return res.status(403).json({ error: 'Initiator cannot bid' });
+
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
 
         const amount = Math.floor(Number(body.amount));
         if (!Number.isFinite(amount) || amount < 1) {
@@ -946,6 +1099,9 @@ module.exports = async function handler(req, res) {
         if (currentPlayer.id !== playerId) return res.status(403).json({ error: 'Not your turn' });
         if (room.turnPhase !== 'endturn') return res.status(400).json({ error: 'Cannot end turn' });
 
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
         if (room.lastDice[0] === room.lastDice[1] && !currentPlayer.inJail && currentPlayer.doublesCount > 0) {
           room.turnPhase = 'roll';
           addNotification(room, `${currentPlayer.name} бросает снова (дубль)`);
@@ -969,6 +1125,9 @@ module.exports = async function handler(req, res) {
         const player = getPlayerById(room, playerId);
         if (!player) return res.status(400).json({ error: 'Player not found' });
 
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
         const cell = BOARD[cellId];
         if (!cell || cell.type !== 'property') return res.status(400).json({ error: 'Not a property' });
 
@@ -988,12 +1147,10 @@ module.exports = async function handler(req, res) {
         if (prop.houses >= 5) return res.status(400).json({ error: 'Max houses reached' });
         if (prop.mortgaged) return res.status(400).json({ error: 'Property is mortgaged' });
 
-        // Cannot build if any property in the color group is mortgaged
         const group = COLOR_GROUPS[cell.color];
         const anyMortgaged = group.some(cid => room.properties[cid]?.mortgaged);
         if (anyMortgaged) return res.status(400).json({ error: 'Cannot build: property in group is mortgaged' });
 
-        // Even building rule
         const minHouses = Math.min(...group.map(cid => (room.properties[cid]?.houses || 0)));
         if (prop.houses > minHouses) return res.status(400).json({ error: 'Must build evenly' });
 
@@ -1027,6 +1184,9 @@ module.exports = async function handler(req, res) {
         if (prop.mortgaged) return res.status(400).json({ error: 'Already mortgaged' });
         if (prop.houses > 0) return res.status(400).json({ error: 'Sell houses first' });
 
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
         const cell = BOARD[cellId];
         if (cell.color) {
           const group = COLOR_GROUPS[cell.color];
@@ -1047,10 +1207,8 @@ module.exports = async function handler(req, res) {
         prop.mortgaged = true;
         addNotification(room, `${player.name} заложил ${cell.name} (+${mortgageValue}$)`);
 
-        if (room.turnPhase === 'manage' && player.balance >= 0) {
-          room.turnPhase = 'endturn';
-          room.debtInfo = null;
-        }
+        // [CHANGED] Use unified debt resolution check
+        checkDebtResolution(room, player);
 
         room.lastUpdate = Date.now();
         await setRoom(roomId, room);
@@ -1069,6 +1227,9 @@ module.exports = async function handler(req, res) {
         const prop = room.properties[cellId];
         if (!prop || prop.ownerId !== playerId) return res.status(403).json({ error: 'Not your property' });
         if (!prop.mortgaged) return res.status(400).json({ error: 'Not mortgaged' });
+
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
 
         const cell = BOARD[cellId];
         const cost = Math.floor(cell.price / 2 * 1.1);
@@ -1096,6 +1257,9 @@ module.exports = async function handler(req, res) {
         if (!prop || prop.ownerId !== playerId) return res.status(403).json({ error: 'Not your property' });
         if (prop.houses <= 0) return res.status(400).json({ error: 'No houses to sell' });
 
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
         const cell = BOARD[cellId];
         const group = COLOR_GROUPS[cell.color];
         const maxHouses = Math.max(...group.map(cid => (room.properties[cid]?.houses || 0)));
@@ -1107,9 +1271,80 @@ module.exports = async function handler(req, res) {
         prop.houses--;
         addNotification(room, `${player.name} продал дом на ${cell.name} (+${sellPrice}$)`);
 
-        if (room.turnPhase === 'manage' && player.balance >= 0) {
-          room.turnPhase = 'endturn';
-          room.debtInfo = null;
+        // [CHANGED] Use unified debt resolution check
+        checkDebtResolution(room, player);
+
+        room.lastUpdate = Date.now();
+        await setRoom(roomId, room);
+        return res.json({ success: true, room });
+      }
+
+      // ============================================================
+      // [NEW] bankrupt_auto_sell — Sell all houses then mortgage all
+      // properties in a loop. Does NOT auto-declare bankruptcy.
+      // ============================================================
+      case 'bankrupt_auto_sell': {
+        const { roomId } = body;
+        if (!roomId) return res.status(400).json({ error: 'Missing roomId' });
+        const room = await getRoom(roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+        checkAuctionExpiry(room);
+
+        const player = getPlayerById(room, playerId);
+        if (!player || player.bankrupt) return res.status(400).json({ error: 'Player not found or bankrupt' });
+
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
+        // Step 1: Sell all houses one by one (respecting even-selling rule)
+        let soldSomething = true;
+        while (soldSomething) {
+          soldSomething = false;
+          const ownedProps = Object.entries(room.properties).filter(([, p]) => p.ownerId === playerId);
+          for (const [cellId, prop] of ownedProps) {
+            if (prop.houses <= 0) continue;
+            const cell = BOARD[parseInt(cellId)];
+            const group = COLOR_GROUPS[cell.color];
+            if (!group) continue;
+            const maxHouses = Math.max(...group.map(cid => (room.properties[cid]?.houses || 0)));
+            // Can only sell from properties with the max house count (even selling)
+            if (prop.houses >= maxHouses && prop.houses > 0) {
+              const sellPrice = Math.floor(cell.houseCost / 2);
+              player.balance += sellPrice;
+              prop.houses--;
+              addNotification(room, `Авто-продажа: дом на ${cell.name} (+${sellPrice}$)`);
+              soldSomething = true;
+              // If balance recovered, stop early
+              if (player.balance >= 0 && room.turnPhase === 'manage') {
+                break;
+              }
+            }
+          }
+          // If balance is non-negative now during manage, we can stop
+          if (player.balance >= 0 && room.turnPhase === 'manage') break;
+        }
+
+        // Step 2: If still negative, mortgage all unmortgaged properties
+        if (player.balance < 0) {
+          const unmortgaged = Object.entries(room.properties)
+            .filter(([, p]) => p.ownerId === playerId && !p.mortgaged && p.houses === 0);
+          for (const [cellId, prop] of unmortgaged) {
+            const cell = BOARD[parseInt(cellId)];
+            const mortgageValue = Math.floor(cell.price / 2);
+            player.balance += mortgageValue;
+            prop.mortgaged = true;
+            addNotification(room, `Авто-залог: ${cell.name} (+${mortgageValue}$)`);
+            if (player.balance >= 0 && room.turnPhase === 'manage') break;
+          }
+        }
+
+        // [NEW] Check debt resolution after auto-sell
+        if (room.turnPhase === 'manage') {
+          if (player.balance >= 0) {
+            room.turnPhase = 'endturn';
+            room.debtInfo = null;
+          }
+          // If still < 0, leave in 'manage' state — client will show bankrupt button
         }
 
         room.lastUpdate = Date.now();
@@ -1126,6 +1361,9 @@ module.exports = async function handler(req, res) {
         const player = getPlayerById(room, playerId);
         if (!player) return res.status(400).json({ error: 'Player not found' });
         if (player.bankrupt) return res.status(400).json({ error: 'Already bankrupt' });
+
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
 
         if (canPlayerRecoverServer(room, player)) {
           return res.status(400).json({ error: 'You can still cover the debt by selling houses or mortgaging properties' });
@@ -1144,6 +1382,7 @@ module.exports = async function handler(req, res) {
           cleanupBankruptPlayer(room, playerId);
 
           if (getActivePlayer(room).id === playerId) {
+            room.debtInfo = null;
             nextTurn(room);
           } else {
             checkWinConditionAfterBankruptcy(room);
@@ -1157,22 +1396,30 @@ module.exports = async function handler(req, res) {
           const target = getPlayerById(room, targetPlayerId);
           if (!target || target.bankrupt) return res.status(400).json({ error: 'Invalid target' });
 
-          const residualValue = calculateResidualValue(room, playerId);
-          if (target.balance < residualValue) {
-            return res.status(400).json({ error: `Target cannot afford transfer cost (${residualValue}$)` });
+          // [CHANGED] Transfer price now comes from client via `body.price`
+          const transferPrice = Math.floor(Number(body.price));
+          if (!Number.isFinite(transferPrice) || transferPrice < 0) {
+            return res.status(400).json({ error: 'Invalid transfer price. Must be a non-negative number.' });
+          }
+          if (target.balance < transferPrice) {
+            return res.status(400).json({ error: `Target cannot afford transfer cost (${transferPrice}$)` });
           }
 
-          target.balance -= residualValue;
+          target.balance -= transferPrice;
+          // The bankrupt player doesn't really keep the money — they're out.
+          // But if the rules say surplus goes to... let's credit it for consistency.
+          // The player will be bankrupt anyway, so balance goes to 0.
           ownedProps.forEach(([cellId, prop]) => {
             prop.ownerId = targetPlayerId;
           });
-          addNotification(room, `${player.name} банкрот! Имущество передано ${target.name} за ${residualValue}$.`);
+          addNotification(room, `${player.name} банкрот! Имущество передано ${target.name} за ${transferPrice}$.`);
 
           player.bankrupt = true;
           player.balance = 0;
           cleanupBankruptPlayer(room, playerId);
 
           if (getActivePlayer(room).id === playerId) {
+            room.debtInfo = null;
             nextTurn(room);
           } else {
             checkWinConditionAfterBankruptcy(room);
@@ -1196,13 +1443,12 @@ module.exports = async function handler(req, res) {
           } else {
             addNotification(room, `${player.name} банкрот! Нет имущества для аукциона.`);
             if (getActivePlayer(room).id === playerId) {
+              room.debtInfo = null;
               nextTurn(room);
             } else {
               checkWinConditionAfterBankruptcy(room);
             }
           }
-
-          // Win condition is checked inside startNextBankruptAuction / checkWinConditionAfterBankruptcy
 
         } else {
           return res.status(400).json({ error: 'Invalid bankruptcy method' });
@@ -1219,6 +1465,9 @@ module.exports = async function handler(req, res) {
         const room = await getRoom(roomId);
         if (!room) return res.status(404).json({ error: 'Room not found' });
         checkAuctionExpiry(room);
+
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
 
         const owner = getPlayerById(room, playerId);
         if (!owner) return res.status(400).json({ error: 'Invalid player' });
@@ -1247,6 +1496,9 @@ module.exports = async function handler(req, res) {
         if (!room) return res.status(404).json({ error: 'Room not found' });
         checkAuctionExpiry(room);
 
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
         const idx = room.agreements.findIndex(a => a.id === agreementId && a.ownerId === playerId);
         if (idx === -1) return res.status(404).json({ error: 'Agreement not found' });
 
@@ -1264,19 +1516,20 @@ module.exports = async function handler(req, res) {
         if (!room) return res.status(404).json({ error: 'Room not found' });
         checkAuctionExpiry(room);
 
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
         const group = COLOR_GROUPS[color];
         if (!group) return res.status(400).json({ error: 'Invalid color' });
 
         const allMembers = members || [playerId];
         if (allMembers.length < 2) return res.status(400).json({ error: 'Need at least 2 members' });
 
-        // All members must be valid and not bankrupt
         for (const mid of allMembers) {
           const p = getPlayerById(room, mid);
           if (!p || p.bankrupt) return res.status(400).json({ error: `Invalid member: ${mid}` });
         }
 
-        // Members must collectively own all properties in the group, and none can be mortgaged
         const ownedByMembers = group.filter(cid => {
           const p = room.properties[cid];
           return p && allMembers.includes(p.ownerId) && !p.mortgaged;
@@ -1324,9 +1577,17 @@ module.exports = async function handler(req, res) {
         if (!room) return res.status(404).json({ error: 'Room not found' });
         checkAuctionExpiry(room);
 
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
         const deal = room.monopolyDeals.find(d => d.id === dealId);
         if (!deal) return res.status(404).json({ error: 'Deal not found' });
         if (!deal.members.includes(playerId)) return res.status(403).json({ error: 'Not a member' });
+
+        // [NEW] Buyer must be in the deal
+        if (!deal.members.includes(buyerId)) {
+          return res.status(400).json({ error: 'Buyer must be a member of this deal' });
+        }
 
         const parsedPrice = Math.floor(Number(price));
         if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
@@ -1360,12 +1621,70 @@ module.exports = async function handler(req, res) {
         return res.json({ success: true, room });
       }
 
+      // ============================================================
+      // [NEW] monopoly_exit_calc — Calculate recommended buyout price
+      // for exiting a monopoly deal
+      // ============================================================
+      case 'monopoly_exit_calc': {
+        const { roomId, dealId, exitingPlayerId } = body;
+        if (!roomId) return res.status(400).json({ error: 'Missing roomId' });
+        const room = await getRoom(roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+
+        const deal = room.monopolyDeals.find(d => d.id === dealId);
+        if (!deal) return res.status(404).json({ error: 'Deal not found' });
+
+        const exiting = exitingPlayerId || playerId;
+        if (!deal.members.includes(exiting)) {
+          return res.status(400).json({ error: 'Player is not a member of this deal' });
+        }
+
+        const group = COLOR_GROUPS[deal.color];
+        if (!group) return res.status(400).json({ error: 'Invalid deal color' });
+
+        // Total value of all properties + houses in this color group
+        let totalGroupValue = 0;
+        group.forEach(cid => {
+          const cell = BOARD[cid];
+          totalGroupValue += cell.price;
+          const prop = room.properties[cid];
+          if (prop && prop.houses > 0) {
+            totalGroupValue += prop.houses * cell.houseCost;
+          }
+        });
+
+        // Calculate the exiting player's share based on investments
+        const investments = deal.investments || {};
+        const totalInvestment = Object.values(investments).reduce((s, v) => s + v, 0);
+        const exitingInvestment = investments[exiting] || 0;
+
+        let recommendedPrice;
+        if (totalInvestment > 0) {
+          // Proportion of exiting player's investment * total group value
+          recommendedPrice = Math.floor((exitingInvestment / totalInvestment) * totalGroupValue);
+        } else {
+          // Fallback: equal split
+          recommendedPrice = Math.floor(totalGroupValue / deal.members.length);
+        }
+
+        return res.json({
+          success: true,
+          recommendedPrice,
+          totalGroupValue,
+          exitingInvestment,
+          totalInvestment,
+        });
+      }
+
       case 'trade_propose': {
         const { roomId, targetId, offerProperties, requestProperties, offerMoney, requestMoney } = body;
         if (!roomId) return res.status(400).json({ error: 'Missing roomId' });
         const room = await getRoom(roomId);
         if (!room) return res.status(404).json({ error: 'Room not found' });
         checkAuctionExpiry(room);
+
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
 
         const from = getPlayerById(room, playerId);
         const to = getPlayerById(room, targetId);
@@ -1378,13 +1697,11 @@ module.exports = async function handler(req, res) {
           return res.status(400).json({ error: 'Money amounts cannot be negative' });
         }
 
-        // Validate offered properties belong to the proposer
         const safeOfferProps = (offerProperties || []).map(id => parseInt(id)).filter(id => {
           const p = room.properties[id];
           return p && p.ownerId === playerId && p.houses === 0;
         });
 
-        // Validate requested properties belong to the target
         const safeRequestProps = (requestProperties || []).map(id => parseInt(id)).filter(id => {
           const p = room.properties[id];
           return p && p.ownerId === targetId && p.houses === 0;
@@ -1414,6 +1731,9 @@ module.exports = async function handler(req, res) {
         if (!room) return res.status(404).json({ error: 'Room not found' });
         checkAuctionExpiry(room);
 
+        // [NEW] Record action
+        recordPlayerAction(room, playerId);
+
         const trade = room.trades.find(t => t.id === tradeId && t.toId === playerId && t.status === 'pending');
         if (!trade) return res.status(404).json({ error: 'Trade not found' });
 
@@ -1421,7 +1741,6 @@ module.exports = async function handler(req, res) {
           const from = getPlayerById(room, trade.fromId);
           const to = getPlayerById(room, trade.toId);
 
-          // Validate all properties still belong to their respective owners
           const offerValid = trade.offerProperties.every(cellId => {
             const prop = room.properties[cellId];
             return prop && prop.ownerId === trade.fromId;
@@ -1438,7 +1757,6 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Trade properties have changed ownership' });
           }
 
-          // Validate balance
           if (from.balance < (trade.offerMoney || 0) || to.balance < (trade.requestMoney || 0)) {
             trade.status = 'invalid';
             room.lastUpdate = Date.now();
@@ -1492,9 +1810,101 @@ module.exports = async function handler(req, res) {
           if (settings.requireFullGroup !== undefined) {
             room.settings.requireFullGroup = !!settings.requireFullGroup;
           }
+          // [NEW] Inactivity timeout setting
+          const inactivity = parseInt(settings.inactivityTimeout);
+          if (Number.isFinite(inactivity) && inactivity >= 30 && inactivity <= 300) {
+            room.settings.inactivityTimeout = inactivity;
+          }
         }
 
         room.players.forEach(p => { p.balance = room.settings.startingMoney; });
+
+        room.lastUpdate = Date.now();
+        await setRoom(roomId, room);
+        return res.json({ success: true, room });
+      }
+
+      // ============================================================
+      // [NEW] chat_send — Send a chat message
+      // ============================================================
+      case 'chat_send': {
+        const { roomId, text } = body;
+        if (!roomId) return res.status(400).json({ error: 'Missing roomId' });
+        const room = await getRoom(roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+
+        const player = getPlayerById(room, playerId);
+        if (!player) return res.status(400).json({ error: 'Player not found' });
+        if (player.bankrupt) return res.status(403).json({ error: 'Bankrupt players cannot chat' });
+
+        // Validate text: must be string, 1-200 characters
+        if (!text || typeof text !== 'string') {
+          return res.status(400).json({ error: 'Message text is required' });
+        }
+        const trimmedText = text.trim();
+        if (trimmedText.length < 1 || trimmedText.length > 200) {
+          return res.status(400).json({ error: 'Message must be 1-200 characters' });
+        }
+
+        // [NEW] Record action (chat counts as activity)
+        recordPlayerAction(room, playerId);
+
+        // Initialize chat array if missing (backward compat)
+        if (!room.chat) room.chat = [];
+
+        room.chat.push({
+          fromId: playerId,
+          fromName: player.name,
+          text: trimmedText,
+          timestamp: Date.now(),
+        });
+
+        // Keep only last 50 messages
+        if (room.chat.length > 50) {
+          room.chat = room.chat.slice(-50);
+        }
+
+        room.lastUpdate = Date.now();
+        await setRoom(roomId, room);
+        return res.json({ success: true, room });
+      }
+
+      // ============================================================
+      // [NEW] kick_player — Host kicks a player from the room
+      // ============================================================
+      case 'kick_player': {
+        const { roomId, targetId } = body;
+        if (!roomId) return res.status(400).json({ error: 'Missing roomId' });
+        const room = await getRoom(roomId);
+        if (!room) return res.status(404).json({ error: 'Room not found' });
+
+        // Only host can kick
+        if (room.hostId !== playerId) {
+          return res.status(403).json({ error: 'Only host can kick players' });
+        }
+
+        // Cannot kick yourself
+        if (targetId === playerId) {
+          return res.status(400).json({ error: 'Cannot kick yourself' });
+        }
+
+        const target = getPlayerById(room, targetId);
+        if (!target) return res.status(400).json({ error: 'Target player not found' });
+
+        if (room.state === 'lobby') {
+          // In lobby: simply remove the player
+          room.players = room.players.filter(p => p.id !== targetId);
+          addNotification(room, `${target.name} исключён из комнаты`);
+        } else if (room.state === 'playing') {
+          if (target.bankrupt) {
+            return res.status(400).json({ error: 'Player is already bankrupt' });
+          }
+          // In game: declare bankruptcy (method 'bank')
+          addNotification(room, `${target.name} исключён хостом`);
+          handleAutomaticBankruptcy(room, targetId, 'bank');
+        } else {
+          return res.status(400).json({ error: 'Cannot kick in current game state' });
+        }
 
         room.lastUpdate = Date.now();
         await setRoom(roomId, room);

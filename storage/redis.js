@@ -15,7 +15,7 @@ function getRedisClient() {
   return redis;
 }
 
-const ROOM_TTL = 86400;
+const ROOM_TTL = 172800; // 2 суток
 
 async function getRoom(roomId) {
   const client = getRedisClient();
@@ -34,4 +34,33 @@ async function deleteRoom(roomId) {
   await client.del(`room:${roomId}`);
 }
 
-module.exports = { getRoom, setRoom, deleteRoom };
+/**
+ * Оптимистичная блокировка комнаты через SET NX EX.
+ * Возвращает true, если блокировка успешно получена, иначе false.
+ * Используется для предотвращения гонок при одновременных запросах.
+ *
+ * @param {string} roomId — идентификатор комнаты
+ * @param {number} ttl — время жизни блокировки в миллисекундах (по умолчанию 5000)
+ * @returns {Promise<boolean>}
+ */
+async function acquireLock(roomId, ttl = 5000) {
+  const client = getRedisClient();
+  const lockKey = `lock:room:${roomId}`;
+  // PX — миллисекунды, NX — только если ключа ещё нет
+  const result = await client.set(lockKey, Date.now().toString(), { nx: true, px: ttl });
+  return result === 'OK' || result === true;
+}
+
+/**
+ * Освобождение блокировки комнаты.
+ *
+ * @param {string} roomId — идентификатор комнаты
+ * @returns {Promise<void>}
+ */
+async function releaseLock(roomId) {
+  const client = getRedisClient();
+  const lockKey = `lock:room:${roomId}`;
+  await client.del(lockKey);
+}
+
+module.exports = { getRoom, setRoom, deleteRoom, acquireLock, releaseLock };

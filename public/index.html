@@ -14,13 +14,34 @@
   --accent: #e94560;
   --text: #eee;
   --text-dim: #aaa;
+  --shadow: rgba(0,0,0,0.5);
+  --border: #333;
+  --input-bg: #222;
+  --danger: #c62828;
+  --success: #4caf50;
 }
+
+[data-theme="light"] {
+  --bg: #f0f0f5;
+  --surface: #ffffff;
+  --primary: #3a7bd5;
+  --accent: #e94560;
+  --text: #222;
+  --text-dim: #666;
+  --shadow: rgba(0,0,0,0.15);
+  --border: #ddd;
+  --input-bg: #f5f5f5;
+  --danger: #e53935;
+  --success: #43a047;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: var(--bg);
   color: var(--text);
   overflow-x: hidden;
   min-height: 100vh;
+  transition: background 0.3s, color 0.3s;
 }
 .screen { display: none; padding: 16px; max-width: 100vw; }
 .screen.active { display: block; }
@@ -30,15 +51,18 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 .lobby-info { background: var(--surface); border-radius: 12px; padding: 16px; margin: 8px 0; }
 .room-code { font-size: 2em; font-weight: bold; text-align: center; color: var(--accent); letter-spacing: 4px; }
 .player-list { list-style: none; }
-.player-list li { padding: 8px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; }
-.player-dot { width: 12px; height: 12px; border-radius: 50%; }
+.player-list li { padding: 8px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+.player-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
 .settings-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
-.settings-row input { width: 80px; padding: 4px 8px; border-radius: 6px; border: 1px solid #555; background: #222; color: #fff; }
+.settings-row input[type="number"], .settings-row input[type="text"] {
+  width: 80px; padding: 4px 8px; border-radius: 6px; border: 1px solid #555;
+  background: var(--input-bg); color: var(--text);
+}
 
 .btn {
   display: inline-block; padding: 10px 18px; border: none; border-radius: 8px;
   font-size: 0.9em; font-weight: 600; cursor: pointer; transition: all 0.2s;
-  color: white; text-align: center;
+  color: white; text-align: center; white-space: nowrap;
 }
 .btn-primary { background: var(--accent); }
 .btn-primary:hover { background: #ff6b81; }
@@ -53,31 +77,60 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
   position: relative; width: 100%; max-width: 380px; margin: 0 auto;
   aspect-ratio: 1;
 }
-.board-canvas { width: 100%; height: 100%; }
+.board-canvas { width: 100%; height: 100%; display: block; }
 
-.hud { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; padding: 4px 0; }
+/* HUD horizontal scroll on mobile */
+.hud {
+  display: flex; flex-wrap: nowrap; gap: 4px; justify-content: flex-start;
+  padding: 4px 0; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.hud::-webkit-scrollbar { display: none; }
 .hud-player {
   background: var(--surface); border-radius: 8px; padding: 6px 10px;
   font-size: 0.75em; display: flex; align-items: center; gap: 4px;
-  border: 2px solid transparent;
+  border: 2px solid transparent; flex-shrink: 0;
+  transition: border-color 0.3s, transform 0.3s;
 }
-.hud-player.active { border-color: var(--accent); }
+.hud-player.active { border-color: var(--accent); animation: pulse 1.5s infinite; }
 .hud-player.bankrupt { opacity: 0.4; text-decoration: line-through; }
 .hud-balance { font-weight: bold; }
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(233,69,96,0.4); }
+  50% { transform: scale(1.03); box-shadow: 0 0 8px 2px rgba(233,69,96,0.25); }
+}
 
 .action-bar {
   display: flex; flex-wrap: wrap; gap: 4px; justify-content: center;
   padding: 8px; background: var(--surface); border-radius: 12px;
 }
 
-.dice-display { text-align: center; font-size: 2em; margin: 4px 0; }
+/* Dice animation */
+.dice-display { text-align: center; font-size: 2em; margin: 4px 0; transition: transform 0.1s; }
+.dice-display.rolling { animation: diceRoll 0.3s ease-out; }
+@keyframes diceRoll {
+  0% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(15deg) scale(1.15); }
+  50% { transform: rotate(-10deg) scale(1.1); }
+  75% { transform: rotate(5deg) scale(1.05); }
+  100% { transform: rotate(0deg) scale(1); }
+}
 
+/* Notifications with slide-in animation */
 .notifications {
   max-height: 120px; overflow-y: auto; background: var(--surface);
   border-radius: 8px; padding: 8px; font-size: 0.75em; margin: 4px 0;
 }
-.notif-item { padding: 2px 0; border-bottom: 1px solid #222; color: var(--text-dim); }
+.notif-item {
+  padding: 2px 0; border-bottom: 1px solid #222; color: var(--text-dim);
+  animation: notifSlideIn 0.3s ease-out;
+}
 .notif-item:last-child { border: none; color: var(--text); }
+@keyframes notifSlideIn {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
 
 .modal-overlay {
   display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -93,37 +146,48 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 .modal-close { float: right; cursor: pointer; font-size: 1.5em; line-height: 1; }
 
 .prop-card {
-  background: #222; border-radius: 8px; padding: 8px; margin: 4px 0;
+  background: var(--input-bg); border-radius: 8px; padding: 8px; margin: 4px 0;
   display: flex; justify-content: space-between; align-items: center;
   font-size: 0.8em;
 }
-.prop-card .color-bar { width: 6px; height: 30px; border-radius: 3px; margin-right: 8px; }
+.prop-card .color-bar { width: 6px; height: 30px; border-radius: 3px; margin-right: 8px; flex-shrink: 0; }
 .prop-card-info { flex: 1; }
-.prop-card-actions { display: flex; gap: 4px; }
+.prop-card-actions { display: flex; gap: 4px; flex-wrap: wrap; }
 
 .tabs { display: flex; gap: 2px; margin-bottom: 8px; }
-.tab { flex: 1; padding: 8px; text-align: center; background: #222; cursor: pointer; font-size: 0.8em; border-radius: 6px 6px 0 0; }
-.tab.active { background: var(--primary); }
+.tab {
+  flex: 1; padding: 8px; text-align: center; background: var(--input-bg);
+  cursor: pointer; font-size: 0.8em; border-radius: 6px 6px 0 0;
+  color: var(--text); border: none; transition: background 0.2s;
+}
+.tab.active { background: var(--primary); color: white; }
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
 .auction-box {
   background: var(--surface); border: 2px solid var(--accent);
   border-radius: 12px; padding: 16px; text-align: center; margin: 8px 0;
+  position: relative; overflow: hidden;
 }
 .auction-timer { font-size: 2em; color: var(--accent); font-weight: bold; }
 .auction-bid-input {
   width: 100px; padding: 8px; border-radius: 6px; border: 1px solid #555;
-  background: #222; color: #fff; text-align: center; font-size: 1.1em;
+  background: var(--input-bg); color: var(--text); text-align: center; font-size: 1.1em;
 }
+.auction-progress-bar {
+  position: absolute; bottom: 0; left: 0; height: 4px;
+  background: var(--accent); transition: width 1s linear; border-radius: 0 0 12px 12px;
+}
+.auction-quick-btns { display: flex; gap: 4px; justify-content: center; margin-top: 6px; }
+.auction-quick-btns .btn { padding: 4px 10px; font-size: 0.75em; }
 
 .deal-item {
-  background: #222; border-radius: 8px; padding: 8px; margin: 4px 0;
+  background: var(--input-bg); border-radius: 8px; padding: 8px; margin: 4px 0;
   font-size: 0.8em; border-left: 3px solid var(--accent);
 }
 
 .debt-box {
-  background: #c62828;
+  background: var(--danger);
   color: #fff;
   border-radius: 12px;
   padding: 12px 16px;
@@ -148,6 +212,110 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 }
 .toast.visible { opacity: 1; }
 
+/* Connection lost banner */
+.connection-banner {
+  display: none; position: fixed; top: 0; left: 0; right: 0;
+  background: var(--danger); color: white; text-align: center;
+  padding: 8px 16px; font-size: 0.85em; z-index: 3000;
+  animation: slideDown 0.3s ease-out;
+}
+.connection-banner.visible { display: block; }
+@keyframes slideDown {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+/* Theme toggle button */
+.theme-toggle {
+  position: fixed; top: 10px; right: 10px; z-index: 500;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 50%; width: 36px; height: 36px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 1.1em; box-shadow: 0 2px 8px var(--shadow);
+  transition: background 0.3s;
+}
+
+/* Players drawer */
+.drawer-overlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 900;
+}
+.drawer-overlay.active { display: block; }
+.drawer {
+  position: fixed; top: 0; right: -320px; bottom: 0; width: 300px;
+  background: var(--surface); z-index: 950; padding: 16px;
+  overflow-y: auto; transition: right 0.3s ease;
+  box-shadow: -4px 0 20px var(--shadow);
+}
+.drawer.active { right: 0; }
+.drawer-close { float: right; cursor: pointer; font-size: 1.5em; line-height: 1; }
+.drawer h3 { margin-bottom: 12px; }
+.drawer-player-item {
+  background: var(--input-bg); border-radius: 8px; padding: 10px; margin: 6px 0;
+  cursor: pointer; transition: background 0.2s;
+}
+.drawer-player-item:hover { background: var(--primary); color: white; }
+.drawer-player-detail { padding: 8px 0; font-size: 0.85em; }
+.drawer-player-detail h4 { margin: 8px 0 4px; color: var(--accent); }
+
+/* Chat panel */
+.chat-overlay {
+  display: none; position: fixed; bottom: 0; left: 0; right: 0;
+  z-index: 1100; background: rgba(0,0,0,0.5);
+  top: 0;
+}
+.chat-overlay.active { display: block; }
+.chat-panel {
+  position: fixed; bottom: -100%; left: 0; right: 0;
+  max-height: 70vh; background: var(--surface);
+  border-radius: 16px 16px 0 0; z-index: 1150;
+  transition: bottom 0.3s ease; display: flex; flex-direction: column;
+  box-shadow: 0 -4px 20px var(--shadow);
+}
+.chat-panel.active { bottom: 0; }
+.chat-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.chat-header h3 { margin: 0; }
+.chat-messages {
+  flex: 1; overflow-y: auto; padding: 12px 16px;
+  min-height: 200px; max-height: 50vh;
+}
+.chat-msg {
+  margin-bottom: 8px; animation: notifSlideIn 0.2s ease-out;
+}
+.chat-msg-name { font-weight: 600; font-size: 0.8em; color: var(--accent); }
+.chat-msg-time { font-size: 0.7em; color: var(--text-dim); margin-left: 6px; }
+.chat-msg-text { font-size: 0.85em; margin-top: 2px; word-break: break-word; }
+.chat-input-row {
+  display: flex; gap: 8px; padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.chat-input-row input {
+  flex: 1; padding: 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--input-bg);
+  color: var(--text); font-size: 0.9em;
+}
+.chat-badge {
+  position: absolute; top: -4px; right: -4px;
+  background: var(--accent); color: white; border-radius: 50%;
+  width: 18px; height: 18px; font-size: 0.65em; font-weight: bold;
+  display: flex; align-items: center; justify-content: center;
+  line-height: 1;
+}
+
+/* Cell info modal */
+.cell-info-modal {
+  position: fixed; z-index: 1200; background: var(--surface);
+  border-radius: 12px; padding: 16px; min-width: 220px; max-width: 300px;
+  box-shadow: 0 4px 20px var(--shadow); display: none;
+}
+.cell-info-modal.active { display: block; }
+.cell-info-modal h4 { margin-bottom: 8px; }
+.cell-info-modal .close-cell { float: right; cursor: pointer; font-size: 1.2em; }
+
+/* Scrollbars */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #555; border-radius: 2px; }
@@ -155,21 +323,37 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 @media (max-width: 400px) {
   .board-wrapper { max-width: 340px; }
   .btn { padding: 8px 12px; font-size: 0.8em; }
+  .drawer { width: 280px; }
+}
+@media (max-width: 350px) {
+  .board-wrapper { max-width: 300px; }
 }
 </style>
 </head>
 <body>
 
+<!-- Connection lost banner -->
+<div class="connection-banner" id="connection-banner">⚠️ Потеря соединения, переподключение...</div>
+
+<!-- Theme toggle -->
+<div class="theme-toggle" id="theme-toggle" onclick="toggleTheme()">🌙</div>
+
 <!-- SCREEN: MENU -->
 <div id="screen-menu" class="screen active">
-  <h1>&#127913; Монополии</h1>
+  <h1>🎩 Монополии</h1>
   <p style="text-align:center;color:var(--text-dim);margin-bottom:20px;">Telegram Mini App</p>
   <div style="max-width:300px;margin:0 auto;">
     <button class="btn btn-primary btn-block" onclick="showCreateRoom()">Создать комнату</button>
     <div style="margin:16px 0;text-align:center;color:var(--text-dim);">— или —</div>
-    <input id="join-code" type="text" placeholder="Код комнаты" maxlength="6"
-      style="display:block;width:100%;padding:12px;border-radius:8px;border:1px solid #555;background:#222;color:#fff;text-align:center;font-size:1.2em;letter-spacing:3px;margin-bottom:8px;">
+    <input id="join-code" type="text" placeholder="Код комнаты" maxlength="8"
+      style="display:block;width:100%;padding:12px;border-radius:8px;border:1px solid #555;background:var(--input-bg);color:var(--text);text-align:center;font-size:1.2em;letter-spacing:3px;margin-bottom:8px;">
     <button class="btn btn-secondary btn-block" onclick="joinRoom()">Присоединиться</button>
+  </div>
+  <div style="max-width:300px;margin:16px auto 0;">
+    <div class="settings-row">
+      <span>Подтверждать траты &gt;100$</span>
+      <input type="checkbox" id="menu-confirm-toggle" onchange="toggleRequireConfirm()" checked>
+    </div>
   </div>
   <p id="menu-error" style="color:var(--accent);text-align:center;margin-top:12px;display:none;"></p>
 </div>
@@ -198,7 +382,7 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 <div id="screen-game" class="screen">
   <div class="game-container">
     <div class="hud" id="game-hud"></div>
-    <div class="dice-display" id="dice-display">&#11036; &#11036;</div>
+    <div class="dice-display" id="dice-display">⬜ ⬜</div>
     <div id="debt-panel"></div>
     <div class="phase-hint" id="phase-hint"></div>
     <div class="board-wrapper">
@@ -210,26 +394,39 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
         <h3 id="auction-title">Аукцион</h3>
         <p id="auction-info"></p>
         <div class="auction-timer" id="auction-timer">10</div>
+        <div class="auction-progress-bar" id="auction-progress-bar" style="width:100%;"></div>
         <p id="auction-current-bid"></p>
         <div style="margin-top:8px;" id="auction-controls">
           <input class="auction-bid-input" id="auction-input" type="number" min="1" placeholder="$">
           <button class="btn btn-primary btn-small" onclick="placeBid()">Ставка</button>
+          <div class="auction-quick-btns">
+            <button class="btn btn-secondary btn-small" onclick="adjustBid(10)">+10</button>
+            <button class="btn btn-secondary btn-small" onclick="adjustBid(50)">+50</button>
+            <button class="btn btn-secondary btn-small" onclick="adjustBid(100)">+100</button>
+          </div>
         </div>
       </div>
     </div>
     <div class="notifications" id="notifications"></div>
     <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;">
-      <button class="btn btn-secondary btn-small" onclick="showPropertyModal()">Имущество</button>
-      <button class="btn btn-secondary btn-small" onclick="showAgreementsModal()">Соглашения</button>
-      <button class="btn btn-secondary btn-small" onclick="showDealsModal()">Договоры</button>
-      <button class="btn btn-secondary btn-small" onclick="showTradeModal()">Сделка</button>
+      <button class="btn btn-secondary btn-small" onclick="showPropertyModal()">🏠 Имущество</button>
+      <button class="btn btn-secondary btn-small" onclick="showAgreementsModal()">🤝 Соглашения</button>
+      <button class="btn btn-secondary btn-small" onclick="showDealsModal()">📜 Договоры</button>
+      <button class="btn btn-secondary btn-small" onclick="showTradeModal()">💱 Сделка</button>
+      <button class="btn btn-secondary btn-small" onclick="showHistoryModal()">📋 История</button>
+      <button class="btn btn-secondary btn-small" onclick="openPlayersDrawer()">👥 Игроки</button>
+      <div style="position:relative;display:inline-block;">
+        <button class="btn btn-secondary btn-small" onclick="openChat()" id="btn-chat">💬 Чат</button>
+        <span class="chat-badge" id="chat-badge" style="display:none;">0</span>
+      </div>
+      <button class="btn btn-secondary btn-small" id="btn-iso" onclick="toggleIsometric()" style="display:none;">🎮 3D вид</button>
     </div>
   </div>
 </div>
 
 <!-- SCREEN: GAME OVER -->
 <div id="screen-gameover" class="screen">
-  <h1>&#127942; Игра окончена!</h1>
+  <h1>🏆 Игра окончена!</h1>
   <p id="winner-text" style="text-align:center;font-size:1.3em;margin:20px 0;"></p>
   <button class="btn btn-primary btn-block" onclick="resetGame()">Новая игра</button>
 </div>
@@ -238,7 +435,7 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 <div class="modal-overlay" id="modal-property">
   <div class="modal">
     <span class="modal-close" onclick="closeModal('modal-property')">&times;</span>
-    <h3>Управление имуществом</h3>
+    <h3>🏠 Управление имуществом</h3>
     <div id="property-list"></div>
   </div>
 </div>
@@ -247,12 +444,12 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 <div class="modal-overlay" id="modal-agreements">
   <div class="modal">
     <span class="modal-close" onclick="closeModal('modal-agreements')">&times;</span>
-    <h3>Соглашения об освобождении</h3>
+    <h3>🤝 Соглашения об освобождении</h3>
     <div id="agreements-list"></div>
-    <hr style="margin:12px 0;border-color:#333;">
+    <hr style="margin:12px 0;border-color:var(--border);">
     <h4>Создать новое:</h4>
     <div id="agreement-form">
-      <select id="agr-player" style="width:100%;padding:8px;margin:4px 0;background:#222;color:#fff;border:1px solid #555;border-radius:6px;"></select>
+      <select id="agr-player" style="width:100%;padding:8px;margin:4px 0;background:var(--input-bg);color:var(--text);border:1px solid #555;border-radius:6px;"></select>
       <label><input type="checkbox" id="agr-all"> Все мои улицы</label>
       <div id="agr-props-list" style="max-height:150px;overflow-y:auto;margin:4px 0;"></div>
       <button class="btn btn-primary btn-small" onclick="createAgreement()">Создать</button>
@@ -264,16 +461,16 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 <div class="modal-overlay" id="modal-deals">
   <div class="modal">
     <span class="modal-close" onclick="closeModal('modal-deals')">&times;</span>
-    <h3>Договоры о совместной монополии</h3>
+    <h3>📜 Договоры о совместной монополии</h3>
     <div id="deals-list"></div>
-    <hr style="margin:12px 0;border-color:#333;">
+    <hr style="margin:12px 0;border-color:var(--border);">
     <h4>Создать договор:</h4>
     <div id="deal-form">
-      <select id="deal-color" style="width:100%;padding:8px;margin:4px 0;background:#222;color:#fff;border:1px solid #555;border-radius:6px;">
+      <select id="deal-color" style="width:100%;padding:8px;margin:4px 0;background:var(--input-bg);color:var(--text);border:1px solid #555;border-radius:6px;">
         <option value="">Выберите цветовую группу</option>
       </select>
       <div id="deal-members-list" style="margin:4px 0;"></div>
-      <select id="deal-split" style="width:100%;padding:8px;margin:4px 0;background:#222;color:#fff;border:1px solid #555;border-radius:6px;">
+      <select id="deal-split" style="width:100%;padding:8px;margin:4px 0;background:var(--input-bg);color:var(--text);border:1px solid #555;border-radius:6px;">
         <option value="equal">Поровну</option>
         <option value="investment">По вложениям</option>
       </select>
@@ -286,9 +483,9 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 <div class="modal-overlay" id="modal-trade">
   <div class="modal">
     <span class="modal-close" onclick="closeModal('modal-trade')">&times;</span>
-    <h3>Предложить сделку</h3>
+    <h3>💱 Предложить сделку</h3>
     <div id="trade-form">
-      <select id="trade-target" style="width:100%;padding:8px;margin:4px 0;background:#222;color:#fff;border:1px solid #555;border-radius:6px;"></select>
+      <select id="trade-target" style="width:100%;padding:8px;margin:4px 0;background:var(--input-bg);color:var(--text);border:1px solid #555;border-radius:6px;"></select>
       <h4>Предлагаю:</h4>
       <div id="trade-offer-props" style="max-height:100px;overflow-y:auto;"></div>
       <div class="settings-row"><span>Деньги:</span><input id="trade-offer-money" type="number" value="0" min="0"></div>
@@ -297,7 +494,7 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
       <div class="settings-row"><span>Деньги:</span><input id="trade-request-money" type="number" value="0" min="0"></div>
       <button class="btn btn-primary btn-small btn-block" onclick="proposeTrade()">Отправить</button>
     </div>
-    <hr style="margin:12px 0;border-color:#333;">
+    <hr style="margin:12px 0;border-color:var(--border);">
     <h4>Входящие предложения:</h4>
     <div id="trade-incoming"></div>
   </div>
@@ -307,12 +504,52 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 <div class="modal-overlay" id="modal-bankrupt">
   <div class="modal">
     <span class="modal-close" onclick="closeModal('modal-bankrupt')">&times;</span>
-    <h3>&#9888;&#65039; Банкротство</h3>
+    <h3>⚠️ Банкротство</h3>
     <p style="margin-bottom:12px;color:var(--text-dim);">Вы не можете покрыть долг. Выберите судьбу имущества:</p>
-    <button class="btn btn-primary btn-block" onclick="declareBankruptcy('bank')">Вернуть в банк</button>
-    <button class="btn btn-secondary btn-block" onclick="declareBankruptcy('auction')">Выставить на аукцион</button>
-    <select id="bankrupt-target" style="width:100%;padding:8px;margin:8px 0;background:#222;color:#fff;border:1px solid #555;border-radius:6px;"></select>
-    <button class="btn btn-secondary btn-block" onclick="declareBankruptcy('transfer')">Передать выбранному игроку</button>
+    <button class="btn btn-secondary btn-block" onclick="doAutoSell()">🔄 Распродать всё</button>
+    <hr style="margin:8px 0;border-color:var(--border);">
+    <button class="btn btn-primary btn-block" onclick="declareBankruptcy('bank')">🏦 Вернуть в банк</button>
+    <button class="btn btn-secondary btn-block" onclick="declareBankruptcy('auction')">🔨 Выставить на аукцион</button>
+    <select id="bankrupt-target" style="width:100%;padding:8px;margin:8px 0;background:var(--input-bg);color:var(--text);border:1px solid #555;border-radius:6px;"></select>
+    <button class="btn btn-secondary btn-block" onclick="declareBankruptcy('transfer')">🤝 Передать выбранному игроку</button>
+  </div>
+</div>
+
+<!-- MODAL: History -->
+<div class="modal-overlay" id="modal-history">
+  <div class="modal">
+    <span class="modal-close" onclick="closeModal('modal-history')">&times;</span>
+    <h3>📋 История ходов</h3>
+    <div id="history-list" style="max-height:60vh;overflow-y:auto;"></div>
+  </div>
+</div>
+
+<!-- MODAL: Cell Info -->
+<div class="cell-info-modal" id="cell-info-modal">
+  <span class="close-cell" onclick="closeCellInfo()">&times;</span>
+  <div id="cell-info-content"></div>
+</div>
+
+<!-- Players Drawer -->
+<div class="drawer-overlay" id="drawer-overlay" onclick="closePlayersDrawer()"></div>
+<div class="drawer" id="players-drawer">
+  <span class="drawer-close" onclick="closePlayersDrawer()">&times;</span>
+  <h3>👥 Игроки</h3>
+  <div id="drawer-players-list"></div>
+  <div id="drawer-player-detail" class="drawer-player-detail" style="display:none;"></div>
+</div>
+
+<!-- Chat Panel -->
+<div class="chat-overlay" id="chat-overlay" onclick="closeChat()"></div>
+<div class="chat-panel" id="chat-panel">
+  <div class="chat-header">
+    <h3>💬 Чат</h3>
+    <span style="cursor:pointer;font-size:1.5em;" onclick="closeChat()">&times;</span>
+  </div>
+  <div class="chat-messages" id="chat-messages"></div>
+  <div class="chat-input-row">
+    <input type="text" id="chat-input" placeholder="Сообщение..." maxlength="200" onkeydown="if(event.key==='Enter')sendChat()">
+    <button class="btn btn-primary btn-small" onclick="sendChat()">➤</button>
   </div>
 </div>
 
@@ -320,6 +557,11 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 <div class="toast" id="toast"></div>
 
 <script>
+// ============================================================
+// CONSTANTS & CONFIGURATION
+// ============================================================
+const ENABLE_ISOMETRIC = true;
+
 // ============================================================
 // UTILITY: XSS Protection
 // ============================================================
@@ -346,6 +588,51 @@ function showToast(msg) {
 }
 
 // ============================================================
+// THEME MANAGEMENT
+// ============================================================
+function getStoredTheme() {
+  try { return localStorage.getItem('monopoly_theme') || null; } catch(e) { return null; }
+}
+function setStoredTheme(t) {
+  try { localStorage.setItem('monopoly_theme', t); } catch(e) {}
+}
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  document.getElementById('theme-toggle').textContent = theme === 'dark' ? '🌙' : '☀️';
+}
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme') || 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  setStoredTheme(next);
+}
+function initTheme() {
+  const stored = getStoredTheme();
+  if (stored) { applyTheme(stored); return; }
+  const tgTheme = window.Telegram?.WebApp?.colorScheme;
+  if (tgTheme === 'light') { applyTheme('light'); }
+  else { applyTheme('dark'); }
+}
+
+// ============================================================
+// CONFIRM SETTING
+// ============================================================
+let requireConfirm = true;
+function loadConfirmSetting() {
+  try {
+    const v = localStorage.getItem('monopoly_requireConfirm');
+    if (v !== null) requireConfirm = v === 'true';
+  } catch(e) {}
+  const cb = document.getElementById('menu-confirm-toggle');
+  if (cb) cb.checked = requireConfirm;
+}
+function toggleRequireConfirm() {
+  const cb = document.getElementById('menu-confirm-toggle');
+  requireConfirm = cb.checked;
+  try { localStorage.setItem('monopoly_requireConfirm', String(requireConfirm)); } catch(e) {}
+}
+
+// ============================================================
 // TELEGRAM WEB APP INTEGRATION
 // ============================================================
 const tg = window.Telegram?.WebApp;
@@ -361,12 +648,6 @@ if (tg) {
   if (user) {
     userId = String(user.id);
     userName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
-  }
-  if (tg.colorScheme === 'light') {
-    document.documentElement.style.setProperty('--bg', '#f5f5f5');
-    document.documentElement.style.setProperty('--surface', '#fff');
-    document.documentElement.style.setProperty('--text', '#222');
-    document.documentElement.style.setProperty('--text-dim', '#666');
   }
 }
 
@@ -387,6 +668,34 @@ let actionLock = false;
 let offscreenCanvas = null;
 let offscreenCtx = null;
 let boardCacheValid = false;
+
+let viewMode = '2d'; // '2d' or 'isometric'
+let chatOpen = false;
+let lastChatCount = 0;
+let unreadChatCount = 0;
+let previousNotifCount = 0;
+
+// Connection state
+let connectionLost = false;
+let retryDelay = 2000;
+const MAX_RETRY_DELAY = 30000;
+
+// ============================================================
+// CONNECTION INDICATOR
+// ============================================================
+function showConnectionLost() {
+  if (!connectionLost) {
+    connectionLost = true;
+    document.getElementById('connection-banner').classList.add('visible');
+  }
+}
+function hideConnectionLost() {
+  if (connectionLost) {
+    connectionLost = false;
+    retryDelay = 2000;
+    document.getElementById('connection-banner').classList.remove('visible');
+  }
+}
 
 // ============================================================
 // API CALLS with error handling and timeouts
@@ -411,6 +720,7 @@ async function apiCall(endpoint, body) {
     });
 
     clearTimeout(timeoutId);
+    hideConnectionLost();
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -419,6 +729,7 @@ async function apiCall(endpoint, body) {
 
     return await res.json();
   } catch (err) {
+    showConnectionLost();
     if (err.name === 'AbortError') {
       return { success: false, error: 'Таймаут подключения' };
     }
@@ -443,6 +754,7 @@ async function apiGet(endpoint, params = {}) {
     });
 
     clearTimeout(timeoutId);
+    hideConnectionLost();
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -451,6 +763,7 @@ async function apiGet(endpoint, params = {}) {
 
     return await res.json();
   } catch (err) {
+    showConnectionLost();
     if (err.name === 'AbortError') {
       return { success: false, error: 'Таймаут подключения' };
     }
@@ -499,7 +812,7 @@ function openModal(id) {
 // SESSION PERSISTENCE
 // ============================================================
 function saveSession(rid) {
-  try { localStorage.setItem('monopoly_roomId', rid); } catch (e) { /* ignore */ }
+  try { localStorage.setItem('monopoly_roomId', rid); } catch (e) {}
 }
 
 function loadSession() {
@@ -507,7 +820,7 @@ function loadSession() {
 }
 
 function clearSession() {
-  try { localStorage.removeItem('monopoly_roomId'); } catch (e) { /* ignore */ }
+  try { localStorage.removeItem('monopoly_roomId'); } catch (e) {}
 }
 
 function resetGame() {
@@ -517,6 +830,9 @@ function resetGame() {
   if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
   if (auctionInterval) { clearInterval(auctionInterval); auctionInterval = null; }
   boardCacheValid = false;
+  viewMode = '2d';
+  lastChatCount = 0;
+  unreadChatCount = 0;
   showScreen('screen-menu');
 }
 
@@ -583,7 +899,7 @@ async function updateSettings() {
 }
 
 // ============================================================
-// POLLING with version check
+// POLLING with version check and exponential backoff
 // ============================================================
 function startPolling() {
   if (pollInterval) clearInterval(pollInterval);
@@ -592,6 +908,7 @@ function startPolling() {
     const lastUpdate = currentRoom ? currentRoom.lastUpdate : 0;
     const result = await apiGet('state', { roomId, lastUpdate: String(lastUpdate) });
     if (result.success) {
+      hideConnectionLost();
       if (result.notModified) return;
 
       currentRoom = result.room;
@@ -610,8 +927,18 @@ function startPolling() {
         pollInterval = null;
         clearSession();
       }
+    } else {
+      // Network error: exponential backoff
+      if (connectionLost) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+        setTimeout(() => {
+          retryDelay = Math.min(retryDelay * 1.5, MAX_RETRY_DELAY);
+          startPolling();
+        }, retryDelay);
+      }
     }
-  }, 2500);
+  }, connectionLost ? retryDelay : 2500);
 }
 
 // ============================================================
@@ -621,7 +948,7 @@ function renderLobby() {
   document.getElementById('lobby-code').textContent = currentRoom.id;
   const list = document.getElementById('lobby-players');
   list.innerHTML = currentRoom.players.map(p =>
-    `<li><span class="player-dot" style="background:${escapeHtml(p.color)}"></span>${escapeHtml(p.name)}${p.id === currentRoom.hostId ? ' &#128081;' : ''}</li>`
+    `<li><span class="player-dot" style="background:${escapeHtml(p.color)}"></span>${escapeHtml(p.name)}${p.id === currentRoom.hostId ? ' 👑' : ''}</li>`
   ).join('');
 
   const isHost = currentRoom.hostId === userId;
@@ -678,20 +1005,39 @@ const BOARD_DATA = [
   { id: 39, type: 'property', name: 'Петровка', color: '#0000CD', price: 400, houseCost: 200 },
 ];
 
-function getCellPosition(index) {
+function getCellRect(index) {
   const S = 760;
   const CORNER = 76;
   const EDGE = (S - 2 * CORNER) / 9;
+  let x, y, w, h;
 
-  if (index === 0) return { x: S - CORNER/2, y: S - CORNER/2 };
-  if (index <= 9) return { x: S - CORNER - EDGE * index + EDGE/2, y: S - CORNER/2 };
-  if (index === 10) return { x: CORNER/2, y: S - CORNER/2 };
-  if (index <= 19) return { x: CORNER/2, y: S - CORNER - EDGE * (index - 10) + EDGE/2 };
-  if (index === 20) return { x: CORNER/2, y: CORNER/2 };
-  if (index <= 29) return { x: CORNER + EDGE * (index - 20) - EDGE/2, y: CORNER/2 };
-  if (index === 30) return { x: S - CORNER/2, y: CORNER/2 };
-  if (index <= 39) return { x: S - CORNER/2, y: CORNER + EDGE * (index - 30) - EDGE/2 };
-  return { x: 0, y: 0 };
+  if (index === 0) { x = S - CORNER; y = S - CORNER; w = CORNER; h = CORNER; }
+  else if (index < 10) { x = S - CORNER - EDGE * index; y = S - CORNER; w = EDGE; h = CORNER; }
+  else if (index === 10) { x = 0; y = S - CORNER; w = CORNER; h = CORNER; }
+  else if (index < 20) { x = 0; y = S - CORNER - EDGE * (index - 10); w = CORNER; h = EDGE; }
+  else if (index === 20) { x = 0; y = 0; w = CORNER; h = CORNER; }
+  else if (index < 30) { x = CORNER + EDGE * (index - 21); y = 0; w = EDGE; h = CORNER; }
+  else if (index === 30) { x = S - CORNER; y = 0; w = CORNER; h = CORNER; }
+  else if (index < 40) { x = S - CORNER; y = CORNER + EDGE * (index - 31); w = CORNER; h = EDGE; }
+  else { x = 0; y = 0; w = 0; h = 0; }
+
+  return { x, y, w, h };
+}
+
+function getCellPosition(index) {
+  const r = getCellRect(index);
+  return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+}
+
+function getCellFromClick(canvasX, canvasY) {
+  if (viewMode === 'isometric') return -1;
+  for (let i = 0; i < 40; i++) {
+    const r = getCellRect(i);
+    if (canvasX >= r.x && canvasX <= r.x + r.w && canvasY >= r.y && canvasY <= r.y + r.h) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 function drawStaticBoard() {
@@ -724,29 +1070,20 @@ function drawStaticBoard() {
 
   for (let i = 0; i < 40; i++) {
     const cell = BOARD_DATA[i];
-    let x, y, w, h;
-
-    if (i === 0) { x = S - CORNER; y = S - CORNER; w = CORNER; h = CORNER; }
-    else if (i < 10) { x = S - CORNER - EDGE * i; y = S - CORNER; w = EDGE; h = CORNER; }
-    else if (i === 10) { x = 0; y = S - CORNER; w = CORNER; h = CORNER; }
-    else if (i < 20) { x = 0; y = S - CORNER - EDGE * (i - 10); w = CORNER; h = EDGE; }
-    else if (i === 20) { x = 0; y = 0; w = CORNER; h = CORNER; }
-    else if (i < 30) { x = CORNER + EDGE * (i - 21); y = 0; w = EDGE; h = CORNER; }
-    else if (i === 30) { x = S - CORNER; y = 0; w = CORNER; h = CORNER; }
-    else if (i < 40) { x = S - CORNER; y = CORNER + EDGE * (i - 31); w = CORNER; h = EDGE; }
+    const r = getCellRect(i);
 
     ctx.fillStyle = '#fff';
-    ctx.fillRect(x, y, w, h);
+    ctx.fillRect(r.x, r.y, r.w, r.h);
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 1;
-    ctx.strokeRect(x, y, w, h);
+    ctx.strokeRect(r.x, r.y, r.w, r.h);
 
     if (cell.color && (cell.type === 'property' || cell.type === 'railroad' || cell.type === 'utility')) {
       ctx.fillStyle = cell.color;
-      if (i >= 1 && i <= 9) { ctx.fillRect(x, y, w, 12); }
-      else if (i >= 11 && i <= 19) { ctx.fillRect(x + w - 12, y, 12, h); }
-      else if (i >= 21 && i <= 29) { ctx.fillRect(x, y + h - 12, w, 12); }
-      else if (i >= 31 && i <= 39) { ctx.fillRect(x, y, 12, h); }
+      if (i >= 1 && i <= 9) { ctx.fillRect(r.x, r.y, r.w, 12); }
+      else if (i >= 11 && i <= 19) { ctx.fillRect(r.x + r.w - 12, r.y, 12, r.h); }
+      else if (i >= 21 && i <= 29) { ctx.fillRect(r.x, r.y + r.h - 12, r.w, 12); }
+      else if (i >= 31 && i <= 39) { ctx.fillRect(r.x, r.y, 12, r.h); }
     }
 
     ctx.fillStyle = '#333';
@@ -754,23 +1091,23 @@ function drawStaticBoard() {
     ctx.textAlign = 'center';
     if (i === 0 || i === 10 || i === 20 || i === 30) {
       ctx.font = 'bold 10px sans-serif';
-      ctx.fillText(cell.name, x + w/2, y + h/2 + 4);
+      ctx.fillText(cell.name, r.x + r.w/2, r.y + r.h/2 + 4);
     } else if (i >= 11 && i <= 19) {
       ctx.save();
-      ctx.translate(x + 14, y + h/2);
+      ctx.translate(r.x + 14, r.y + r.h/2);
       ctx.rotate(-Math.PI/2);
       ctx.fillText(cell.name, 0, 0);
       ctx.restore();
     } else if (i >= 31 && i <= 39) {
       ctx.save();
-      ctx.translate(x + w - 14, y + h/2);
+      ctx.translate(r.x + r.w - 14, r.y + r.h/2);
       ctx.rotate(Math.PI/2);
       ctx.fillText(cell.name, 0, 0);
       ctx.restore();
     } else {
-      const nameY = (i >= 1 && i <= 9) ? y + h - 10 :
-                    (i >= 21 && i <= 29) ? y + 14 : y + h/2 + 3;
-      ctx.fillText(cell.name, x + w/2, nameY);
+      const nameY = (i >= 1 && i <= 9) ? r.y + r.h - 10 :
+                    (i >= 21 && i <= 29) ? r.y + 14 : r.y + r.h/2 + 3;
+      ctx.fillText(cell.name, r.x + r.w/2, nameY);
     }
   }
 
@@ -781,61 +1118,63 @@ function drawBoard() {
   const canvas = document.getElementById('board-canvas');
   const ctx = canvas.getContext('2d');
   const S = 760;
-  const CORNER = 76;
-  const EDGE = (S - 2 * CORNER) / 9;
 
   if (!boardCacheValid) {
     drawStaticBoard();
   }
+
+  ctx.clearRect(0, 0, S, S);
+
+  if (viewMode === 'isometric') {
+    ctx.save();
+    ctx.setTransform(1, 0.2, -0.2, 1, 100, -40);
+  }
+
   ctx.drawImage(offscreenCanvas, 0, 0);
 
+  // Draw dynamic overlays (ownership, houses, mortgage)
   for (let i = 0; i < 40; i++) {
-    let x, y, w, h;
-
-    if (i === 0) { x = S - CORNER; y = S - CORNER; w = CORNER; h = CORNER; }
-    else if (i < 10) { x = S - CORNER - EDGE * i; y = S - CORNER; w = EDGE; h = CORNER; }
-    else if (i === 10) { x = 0; y = S - CORNER; w = CORNER; h = CORNER; }
-    else if (i < 20) { x = 0; y = S - CORNER - EDGE * (i - 10); w = CORNER; h = EDGE; }
-    else if (i === 20) { x = 0; y = 0; w = CORNER; h = CORNER; }
-    else if (i < 30) { x = CORNER + EDGE * (i - 21); y = 0; w = EDGE; h = CORNER; }
-    else if (i === 30) { x = S - CORNER; y = 0; w = CORNER; h = CORNER; }
-    else if (i < 40) { x = S - CORNER; y = CORNER + EDGE * (i - 31); w = CORNER; h = EDGE; }
-
+    const r = getCellRect(i);
     const prop = currentRoom?.properties?.[i];
     if (prop) {
       const owner = currentRoom.players.find(p => p.id === prop.ownerId);
       if (owner) {
         ctx.fillStyle = owner.color;
         ctx.globalAlpha = 0.2;
-        ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
+        ctx.fillRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4);
         ctx.globalAlpha = 1;
       }
       if (prop.houses > 0 && prop.houses < 5) {
         for (let hi = 0; hi < prop.houses; hi++) {
           ctx.fillStyle = '#4caf50';
-          if (i >= 1 && i <= 9) ctx.fillRect(x + 4 + hi * 12, y + 14, 10, 8);
-          else if (i >= 11 && i <= 19) ctx.fillRect(x + w - 24, y + 4 + hi * 12, 8, 10);
-          else if (i >= 21 && i <= 29) ctx.fillRect(x + 4 + hi * 12, y + h - 24, 10, 8);
-          else if (i >= 31 && i <= 39) ctx.fillRect(x + 14, y + 4 + hi * 12, 8, 10);
+          if (i >= 1 && i <= 9) ctx.fillRect(r.x + 4 + hi * 12, r.y + 14, 10, 8);
+          else if (i >= 11 && i <= 19) ctx.fillRect(r.x + r.w - 24, r.y + 4 + hi * 12, 8, 10);
+          else if (i >= 21 && i <= 29) ctx.fillRect(r.x + 4 + hi * 12, r.y + r.h - 24, 10, 8);
+          else if (i >= 31 && i <= 39) ctx.fillRect(r.x + 14, r.y + 4 + hi * 12, 8, 10);
         }
       } else if (prop.houses === 5) {
         ctx.fillStyle = '#f44336';
-        if (i >= 1 && i <= 9) ctx.fillRect(x + w/2 - 8, y + 14, 16, 10);
-        else if (i >= 11 && i <= 19) ctx.fillRect(x + w - 26, y + h/2 - 8, 10, 16);
-        else if (i >= 21 && i <= 29) ctx.fillRect(x + w/2 - 8, y + h - 26, 16, 10);
-        else if (i >= 31 && i <= 39) ctx.fillRect(x + 14, y + h/2 - 8, 10, 16);
+        if (i >= 1 && i <= 9) ctx.fillRect(r.x + r.w/2 - 8, r.y + 14, 16, 10);
+        else if (i >= 11 && i <= 19) ctx.fillRect(r.x + r.w - 26, r.y + r.h/2 - 8, 10, 16);
+        else if (i >= 21 && i <= 29) ctx.fillRect(r.x + r.w/2 - 8, r.y + r.h - 26, 16, 10);
+        else if (i >= 31 && i <= 39) ctx.fillRect(r.x + 14, r.y + r.h/2 - 8, 10, 16);
       }
       if (prop.mortgaged) {
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.fillRect(x, y, w, h);
+        ctx.fillRect(r.x, r.y, r.w, r.h);
         ctx.fillStyle = '#fff';
         ctx.font = '10px sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('ЗАЛОГ', x + w/2, y + h/2);
+        ctx.fillText('ЗАЛОГ', r.x + r.w/2, r.y + r.h/2);
       }
     }
   }
 
+  if (viewMode === 'isometric') {
+    ctx.restore();
+  }
+
+  // Draw player tokens (outside isometric transform for correct positions)
   if (currentRoom?.players) {
     const positionCounts = {};
     currentRoom.players.forEach(p => {
@@ -845,25 +1184,44 @@ function drawBoard() {
     });
 
     Object.entries(positionCounts).forEach(([pos, players]) => {
-      const center = getCellPosition(parseInt(pos));
+      let center = getCellPosition(parseInt(pos));
+
+      if (viewMode === 'isometric') {
+        // Transform the center point for isometric view
+        const tx = center.x * 1 + center.y * (-0.2) + 100;
+        const ty = center.x * 0.2 + center.y * 1 + (-40);
+        center = { x: tx, y: ty };
+      }
+
       players.forEach((p, i) => {
         const offsetX = (i % 2) * 14 - 7;
         const offsetY = Math.floor(i / 2) * 14 - 7;
-        ctx.beginPath();
-        ctx.arc(center.x + offsetX, center.y + offsetY, 8, 0, Math.PI * 2);
-        ctx.fillStyle = p.color;
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        const px = center.x + offsetX;
+        const py = center.y + offsetY;
+
+        // If player has icon emoji, draw that; otherwise colored circle
+        if (p.icon) {
+          ctx.font = '14px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(p.icon, px, py + 5);
+        } else {
+          ctx.beginPath();
+          ctx.arc(px, py, 8, 0, Math.PI * 2);
+          ctx.fillStyle = p.color;
+          ctx.fill();
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+
         if (p.inJail) {
           ctx.strokeStyle = '#000';
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(center.x + offsetX - 5, center.y + offsetY - 8);
-          ctx.lineTo(center.x + offsetX - 5, center.y + offsetY + 8);
-          ctx.moveTo(center.x + offsetX + 5, center.y + offsetY - 8);
-          ctx.lineTo(center.x + offsetX + 5, center.y + offsetY + 8);
+          ctx.moveTo(px - 5, py - 8);
+          ctx.lineTo(px - 5, py + 8);
+          ctx.moveTo(px + 5, py - 8);
+          ctx.lineTo(px + 5, py + 8);
           ctx.stroke();
         }
       });
@@ -879,22 +1237,41 @@ function renderGame() {
   const phase = currentRoom.turnPhase;
   const isMyTurn = currentPlayerId === userId;
 
+  // Isometric button
+  const isoBtn = document.getElementById('btn-iso');
+  if (ENABLE_ISOMETRIC) {
+    isoBtn.style.display = '';
+    isoBtn.textContent = viewMode === '2d' ? '🎮 3D вид' : '🎮 2D вид';
+  } else {
+    isoBtn.style.display = 'none';
+  }
+
   // HUD
   const hud = document.getElementById('game-hud');
-  hud.innerHTML = currentRoom.players.map(p => `
+  hud.innerHTML = currentRoom.players.map(p => {
+    const iconHtml = p.icon
+      ? `<span style="font-size:1.2em;">${escapeHtml(p.icon)}</span>`
+      : `<span class="player-dot" style="background:${escapeHtml(p.color)}"></span>`;
+    return `
     <div class="hud-player ${p.id === currentPlayerId ? 'active' : ''} ${p.bankrupt ? 'bankrupt' : ''}">
-      <span class="player-dot" style="background:${escapeHtml(p.color)}"></span>
+      ${iconHtml}
       <span>${escapeHtml(p.name.substring(0, 8))}</span>
       <span class="hud-balance">${p.balance}$</span>
-      ${p.inJail ? '&#128274;' : ''}
+      ${p.inJail ? '🔒' : ''}
     </div>
-  `).join('');
+  `;
+  }).join('');
 
-  // Dice
+  // Dice with animation
   const diceEl = document.getElementById('dice-display');
   if (currentRoom.lastDice[0] > 0) {
     const diceEmoji = ['', '\u2680', '\u2681', '\u2682', '\u2683', '\u2684', '\u2685'];
-    diceEl.textContent = diceEmoji[currentRoom.lastDice[0]] + ' ' + diceEmoji[currentRoom.lastDice[1]];
+    const newText = diceEmoji[currentRoom.lastDice[0]] + ' ' + diceEmoji[currentRoom.lastDice[1]];
+    if (diceEl.textContent !== newText) {
+      diceEl.textContent = newText;
+      diceEl.classList.add('rolling');
+      setTimeout(() => diceEl.classList.remove('rolling'), 300);
+    }
   }
 
   // Debt panel
@@ -905,7 +1282,7 @@ function renderGame() {
       : 'банку';
     debtPanel.innerHTML = `
       <div class="debt-box">
-        <h3>&#9888; ДОЛГ: ${currentRoom.debtInfo.amount}$</h3>
+        <h3>⚠ ДОЛГ: ${currentRoom.debtInfo.amount}$</h3>
         <p>Выплатить ${escapeHtml(creditorName)}</p>
         <p style="font-size:0.85em;margin-top:4px;">Продайте дома или заложите имущество</p>
       </div>
@@ -936,6 +1313,12 @@ function renderGame() {
   renderActions();
   renderAuction();
   renderNotifications();
+  updateChatBadge();
+
+  // If chat is open, refresh messages
+  if (chatOpen) {
+    renderChatMessages();
+  }
 
   // Check if we need bankrupt modal
   if (me && phase === 'manage' && currentPlayerId === userId && me.balance < 0) {
@@ -974,26 +1357,26 @@ function renderActions() {
   if (isMyTurn && me && !me.bankrupt) {
     const disabled = actionLock ? 'disabled' : '';
     if (phase === 'roll') {
-      buttons += `<button class="btn btn-primary" onclick="doRoll()" ${disabled}>&#127922; Бросить кубик</button>`;
+      buttons += `<button class="btn btn-primary" onclick="doRoll()" ${disabled}>🎲 Бросить кубик</button>`;
       if (me.inJail) {
-        buttons += `<button class="btn btn-secondary btn-small" onclick="doPayJail()" ${disabled}>Заплатить 50$</button>`;
+        buttons += `<button class="btn btn-secondary btn-small" onclick="doPayJail()" ${disabled}>💰 Заплатить 50$</button>`;
         if (me.jailCards > 0) {
-          buttons += `<button class="btn btn-secondary btn-small" onclick="doUseJailCard()" ${disabled}>Карта свободы</button>`;
+          buttons += `<button class="btn btn-secondary btn-small" onclick="doUseJailCard()" ${disabled}>🃏 Карта свободы</button>`;
         }
       }
     }
     if (phase === 'buy') {
       const cell = BOARD_DATA[me.position];
-      buttons += `<button class="btn btn-primary" onclick="doBuy()" ${disabled}>Купить ${escapeHtml(cell?.name || '')} (${cell?.price || 0}$)</button>`;
-      buttons += `<button class="btn btn-secondary" onclick="doAuctionStart()" ${disabled}>Аукцион</button>`;
+      buttons += `<button class="btn btn-primary" onclick="doBuy()" ${disabled}>🏠 Купить ${escapeHtml(cell?.name || '')} (${cell?.price || 0}$)</button>`;
+      buttons += `<button class="btn btn-secondary" onclick="doAuctionStart()" ${disabled}>🔨 Аукцион</button>`;
     }
     if (phase === 'endturn') {
-      buttons += `<button class="btn btn-primary" onclick="doEndTurn()" ${disabled}>Завершить ход</button>`;
+      buttons += `<button class="btn btn-primary" onclick="doEndTurn()" ${disabled}>✅ Завершить ход</button>`;
     }
     if (phase === 'manage') {
-      buttons += `<button class="btn btn-secondary" onclick="showPropertyModal()" ${disabled}>Управление</button>`;
+      buttons += `<button class="btn btn-secondary" onclick="showPropertyModal()" ${disabled}>🏠 Управление</button>`;
       if (!canPlayerRecover(me)) {
-        buttons += `<button class="btn btn-primary" onclick="openModal('modal-bankrupt');renderBankruptModal();" ${disabled}>Банкротство</button>`;
+        buttons += `<button class="btn btn-primary" onclick="openModal('modal-bankrupt');renderBankruptModal();" ${disabled}>⚠️ Банкротство</button>`;
       }
     }
   }
@@ -1017,7 +1400,7 @@ function renderAuction() {
   auctionUI.style.display = 'block';
   const auction = currentRoom.auction;
   const cell = BOARD_DATA[auction.cellId];
-  document.getElementById('auction-title').textContent = `Аукцион: ${cell?.name || ''}`;
+  document.getElementById('auction-title').textContent = `🔨 Аукцион: ${cell?.name || ''}`;
 
   const bidder = auction.currentBidderId ? currentRoom.players.find(p => p.id === auction.currentBidderId) : null;
   document.getElementById('auction-current-bid').textContent =
@@ -1026,9 +1409,11 @@ function renderAuction() {
   const me = currentRoom.players.find(p => p.id === userId);
   const canBid = auction.initiatorId !== userId && me && !me.bankrupt;
   document.getElementById('auction-controls').style.display = canBid ? 'block' : 'none';
-  document.getElementById('auction-input').min = auction.currentBid + 1;
+
+  const minBid = auction.currentBid + 1;
+  document.getElementById('auction-input').min = minBid;
   if (!document.getElementById('auction-input').matches(':focus')) {
-    document.getElementById('auction-input').value = auction.currentBid + 1;
+    document.getElementById('auction-input').value = minBid;
   }
 
   if (!auctionInterval) {
@@ -1040,10 +1425,22 @@ function renderAuction() {
         auctionInterval = null;
         if (result.room) { currentRoom = result.room; renderGame(); }
       } else if (result.remaining !== undefined) {
-        document.getElementById('auction-timer').textContent = Math.max(0, Math.ceil(result.remaining / 1000));
+        const secs = Math.max(0, Math.ceil(result.remaining / 1000));
+        document.getElementById('auction-timer').textContent = secs;
+        // Update progress bar
+        const total = currentRoom.settings.auctionTimer * 1000;
+        const pct = Math.max(0, Math.min(100, (result.remaining / total) * 100));
+        document.getElementById('auction-progress-bar').style.width = pct + '%';
       }
     }, 1000);
   }
+}
+
+function adjustBid(amount) {
+  const input = document.getElementById('auction-input');
+  const current = parseInt(input.value) || 0;
+  const minBid = currentRoom?.auction ? currentRoom.auction.currentBid + 1 : 1;
+  input.value = Math.max(minBid, current + amount);
 }
 
 function renderNotifications() {
@@ -1051,6 +1448,229 @@ function renderNotifications() {
   const notifs = currentRoom.notifications || [];
   el.innerHTML = notifs.slice(-10).map(n => `<div class="notif-item">${escapeHtml(n.text)}</div>`).join('');
   el.scrollTop = el.scrollHeight;
+}
+
+// ============================================================
+// CHAT
+// ============================================================
+function updateChatBadge() {
+  const chat = currentRoom?.chat || [];
+  const newCount = chat.length;
+  if (!chatOpen && newCount > lastChatCount) {
+    unreadChatCount += (newCount - lastChatCount);
+  }
+  lastChatCount = newCount;
+
+  const badge = document.getElementById('chat-badge');
+  if (unreadChatCount > 0 && !chatOpen) {
+    badge.style.display = 'flex';
+    badge.textContent = unreadChatCount > 99 ? '99+' : unreadChatCount;
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function openChat() {
+  chatOpen = true;
+  unreadChatCount = 0;
+  document.getElementById('chat-badge').style.display = 'none';
+  document.getElementById('chat-overlay').classList.add('active');
+  document.getElementById('chat-panel').classList.add('active');
+  renderChatMessages();
+  setTimeout(() => {
+    const el = document.getElementById('chat-messages');
+    el.scrollTop = el.scrollHeight;
+  }, 100);
+}
+
+function closeChat() {
+  chatOpen = false;
+  document.getElementById('chat-overlay').classList.remove('active');
+  document.getElementById('chat-panel').classList.remove('active');
+}
+
+function renderChatMessages() {
+  const container = document.getElementById('chat-messages');
+  const chat = currentRoom?.chat || [];
+
+  container.innerHTML = chat.map(msg => {
+    const time = msg.time ? new Date(msg.time) : new Date();
+    const hh = String(time.getHours()).padStart(2, '0');
+    const mm = String(time.getMinutes()).padStart(2, '0');
+    const player = currentRoom.players.find(p => p.id === msg.playerId);
+    const name = player ? player.name : (msg.playerName || 'Игрок');
+    const color = player ? player.color : '#999';
+    return `
+      <div class="chat-msg">
+        <span class="chat-msg-name" style="color:${escapeHtml(color)}">${escapeHtml(name)}</span>
+        <span class="chat-msg-time">${hh}:${mm}</span>
+        <div class="chat-msg-text">${escapeHtml(msg.text)}</div>
+      </div>
+    `;
+  }).join('');
+
+  if (chat.length === 0) {
+    container.innerHTML = '<p style="color:var(--text-dim);text-align:center;margin-top:20px;">Нет сообщений</p>';
+  }
+
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendChat() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text || !roomId) return;
+  input.value = '';
+
+  const result = await apiCall('chat_send', { roomId, text });
+  if (result && result.success && result.room) {
+    currentRoom = result.room;
+    renderChatMessages();
+    renderGame();
+  }
+}
+
+// ============================================================
+// PLAYERS DRAWER
+// ============================================================
+function openPlayersDrawer() {
+  document.getElementById('drawer-overlay').classList.add('active');
+  document.getElementById('players-drawer').classList.add('active');
+  document.getElementById('drawer-player-detail').style.display = 'none';
+  renderDrawerPlayersList();
+}
+
+function closePlayersDrawer() {
+  document.getElementById('drawer-overlay').classList.remove('active');
+  document.getElementById('players-drawer').classList.remove('active');
+}
+
+function renderDrawerPlayersList() {
+  const container = document.getElementById('drawer-players-list');
+  container.innerHTML = currentRoom.players.map((p, idx) => {
+    const iconHtml = p.icon
+      ? `<span style="font-size:1.2em;margin-right:6px;">${escapeHtml(p.icon)}</span>`
+      : `<span class="player-dot" style="background:${escapeHtml(p.color)};display:inline-block;margin-right:6px;"></span>`;
+    return `
+      <div class="drawer-player-item ${p.bankrupt ? 'bankrupt' : ''}" onclick="showDrawerPlayerDetail('${escapeHtml(p.id)}')">
+        ${iconHtml}
+        <strong>${escapeHtml(p.name)}</strong>
+        <span style="float:right;">${p.balance}$ ${p.inJail ? '🔒' : ''} ${p.bankrupt ? '💀' : ''}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+function showDrawerPlayerDetail(pid) {
+  const player = currentRoom.players.find(p => p.id === pid);
+  if (!player) return;
+
+  const detail = document.getElementById('drawer-player-detail');
+  detail.style.display = 'block';
+
+  const cellName = BOARD_DATA[player.position]?.name || 'Неизвестно';
+
+  // Properties
+  const playerProps = Object.entries(currentRoom.properties)
+    .filter(([, p]) => p.ownerId === pid)
+    .map(([cellId, prop]) => {
+      const cell = BOARD_DATA[cellId];
+      return `<div style="padding:2px 0;font-size:0.85em;">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${escapeHtml(cell.color || '#666')};margin-right:4px;"></span>
+        ${escapeHtml(cell.name)} ${prop.houses > 0 ? `(🏠×${prop.houses})` : ''} ${prop.mortgaged ? '⛔ЗАЛОГ' : ''}
+      </div>`;
+    }).join('') || '<p style="color:var(--text-dim);font-size:0.85em;">Нет имущества</p>';
+
+  // Monopoly deals
+  const deals = (currentRoom.monopolyDeals || [])
+    .filter(d => d.members.includes(pid))
+    .map(d => {
+      const colorNames = { brown:'Коричневая',lightblue:'Голубая',pink:'Розовая',orange:'Оранжевая',red:'Красная',yellow:'Жёлтая',green:'Зелёная',blue:'Синяя' };
+      const members = d.members.map(id => escapeHtml(currentRoom.players.find(p => p.id === id)?.name || '?')).join(', ');
+      return `<div style="font-size:0.85em;padding:2px 0;">${escapeHtml(colorNames[d.color] || d.color)}: ${members}</div>`;
+    }).join('') || '<p style="color:var(--text-dim);font-size:0.85em;">Нет</p>';
+
+  // Agreements
+  const agreements = (currentRoom.agreements || [])
+    .filter(a => a.ownerId === pid || a.guestId === pid)
+    .map(a => {
+      const owner = currentRoom.players.find(p => p.id === a.ownerId);
+      const guest = currentRoom.players.find(p => p.id === a.guestId);
+      const role = a.ownerId === pid ? 'владелец' : 'гость';
+      return `<div style="font-size:0.85em;padding:2px 0;">${escapeHtml(owner?.name)} → ${escapeHtml(guest?.name)} (${role})${a.allProperties ? ' [все]' : ''}</div>`;
+    }).join('') || '<p style="color:var(--text-dim);font-size:0.85em;">Нет</p>';
+
+  detail.innerHTML = `
+    <button class="btn btn-secondary btn-small" onclick="document.getElementById('drawer-player-detail').style.display='none'" style="margin-bottom:8px;">← Назад</button>
+    <h4 style="color:${escapeHtml(player.color)}">${escapeHtml(player.name)}</h4>
+    <p>Баланс: <strong>${player.balance}$</strong></p>
+    <p>Позиция: ${escapeHtml(cellName)} (${player.position})</p>
+    <p>В тюрьме: ${player.inJail ? 'Да (ход ' + player.jailTurns + '/3)' : 'Нет'}</p>
+    <p>Карт свободы: ${player.jailCards || 0}</p>
+    <h4>Имущество:</h4>
+    ${playerProps}
+    <h4>Договоры монополии:</h4>
+    ${deals}
+    <h4>Соглашения:</h4>
+    ${agreements}
+  `;
+}
+
+// ============================================================
+// CELL INFO ON CLICK
+// ============================================================
+function showCellInfo(cellIndex, clientX, clientY) {
+  if (cellIndex < 0 || cellIndex > 39) return;
+  const cell = BOARD_DATA[cellIndex];
+  const prop = currentRoom?.properties?.[cellIndex];
+  const modal = document.getElementById('cell-info-modal');
+  const content = document.getElementById('cell-info-content');
+
+  let html = `<h4>${escapeHtml(cell.name)}</h4>`;
+  html += `<p style="font-size:0.85em;color:var(--text-dim);">Тип: ${escapeHtml(cell.type)}</p>`;
+
+  if (cell.price > 0) {
+    html += `<p>Цена: ${cell.price}$</p>`;
+  }
+  if (cell.houseCost > 0) {
+    html += `<p>Дом: ${cell.houseCost}$</p>`;
+  }
+
+  if (prop) {
+    const owner = currentRoom.players.find(p => p.id === prop.ownerId);
+    html += `<p>Владелец: <strong style="color:${escapeHtml(owner?.color || '#fff')}">${escapeHtml(owner?.name || '?')}</strong></p>`;
+    html += `<p>Дома: ${prop.houses} ${prop.houses === 5 ? '(отель)' : ''}</p>`;
+    if (prop.mortgaged) html += `<p style="color:var(--danger);">⛔ В залоге</p>`;
+  } else if (cell.price > 0) {
+    html += `<p style="color:var(--text-dim);">Свободна</p>`;
+  }
+
+  content.innerHTML = html;
+
+  // Position modal near click
+  const mw = 240;
+  let mx = Math.min(clientX + 10, window.innerWidth - mw - 10);
+  let my = Math.min(clientY + 10, window.innerHeight - 200);
+  mx = Math.max(10, mx);
+  my = Math.max(10, my);
+
+  modal.style.left = mx + 'px';
+  modal.style.top = my + 'px';
+  modal.classList.add('active');
+}
+
+function closeCellInfo() {
+  document.getElementById('cell-info-modal').classList.remove('active');
+}
+
+// ============================================================
+// ISOMETRIC TOGGLE
+// ============================================================
+function toggleIsometric() {
+  viewMode = viewMode === '2d' ? 'isometric' : '2d';
+  boardCacheValid = false;
+  closeCellInfo();
+  renderGame();
 }
 
 // ============================================================
@@ -1094,23 +1714,71 @@ async function doEndTurn() {
 }
 
 async function doBuild(cellId) {
+  const cell = BOARD_DATA[cellId];
+  if (requireConfirm && cell && cell.houseCost > 100) {
+    if (!confirm(`Построить дом за ${cell.houseCost}$?`)) return;
+  }
   const result = await safeApiCall('build', { roomId, cellId: parseInt(cellId) });
-  if (result && result.success) { currentRoom = result.room; renderGame(); showPropertyModal(); }
+  if (result && result.success) {
+    currentRoom = result.room;
+    renderGame();
+    if (document.getElementById('modal-property').classList.contains('active')) {
+      showPropertyModal();
+    }
+  }
 }
 
 async function doMortgage(cellId) {
   const result = await safeApiCall('mortgage', { roomId, cellId: parseInt(cellId) });
-  if (result && result.success) { currentRoom = result.room; renderGame(); showPropertyModal(); }
+  if (result && result.success) {
+    currentRoom = result.room;
+    renderGame();
+    if (document.getElementById('modal-property').classList.contains('active')) {
+      showPropertyModal();
+    }
+  }
 }
 
 async function doUnmortgage(cellId) {
+  const cell = BOARD_DATA[cellId];
+  const cost = Math.floor((cell?.price || 100) / 2 * 1.1);
+  if (requireConfirm && cost > 100) {
+    if (!confirm(`Выкупить из залога за ${cost}$?`)) return;
+  }
   const result = await safeApiCall('unmortgage', { roomId, cellId: parseInt(cellId) });
-  if (result && result.success) { currentRoom = result.room; renderGame(); showPropertyModal(); }
+  if (result && result.success) {
+    currentRoom = result.room;
+    renderGame();
+    if (document.getElementById('modal-property').classList.contains('active')) {
+      showPropertyModal();
+    }
+  }
 }
 
 async function doSellHouse(cellId) {
   const result = await safeApiCall('sellhouse', { roomId, cellId: parseInt(cellId) });
-  if (result && result.success) { currentRoom = result.room; renderGame(); showPropertyModal(); }
+  if (result && result.success) {
+    currentRoom = result.room;
+    renderGame();
+    if (document.getElementById('modal-property').classList.contains('active')) {
+      showPropertyModal();
+    }
+  }
+}
+
+async function doAutoSell() {
+  const result = await safeApiCall('bankrupt_auto_sell', { roomId });
+  if (result && result.success) {
+    currentRoom = result.room;
+    const me = currentRoom.players.find(p => p.id === userId);
+    if (me && me.balance >= 0) {
+      closeModal('modal-bankrupt');
+      showToast('Имущество распродано, долг погашен!');
+    } else {
+      showToast('Не удалось покрыть долг. Выберите вариант банкротства.');
+    }
+    renderGame();
+  }
 }
 
 // ============================================================
@@ -1131,7 +1799,7 @@ function showPropertyModal() {
           <span class="color-bar" style="background:${escapeHtml(cell.color || '#666')}"></span>
           <div class="prop-card-info">
             <strong>${escapeHtml(cell.name)}</strong><br>
-            <small>${prop.mortgaged ? 'ЗАЛОГ' : `Дома: ${prop.houses}`}</small>
+            <small>${prop.mortgaged ? '⛔ ЗАЛОГ' : `🏠 Дома: ${prop.houses}`}</small>
           </div>
           <div class="prop-card-actions">
             ${!prop.mortgaged && prop.houses === 0 ? `<button class="btn btn-secondary btn-small" onclick="doMortgage(${cellId})" ${disabled}>Залог</button>` : ''}
@@ -1313,6 +1981,57 @@ async function declareBankruptcy(method) {
 }
 
 // ============================================================
+// HISTORY MODAL
+// ============================================================
+function showHistoryModal() {
+  const container = document.getElementById('history-list');
+  const notifs = currentRoom?.notifications || [];
+
+  container.innerHTML = notifs.map(n => {
+    const time = n.time ? new Date(n.time) : new Date();
+    const hh = String(time.getHours()).padStart(2, '0');
+    const mm = String(time.getMinutes()).padStart(2, '0');
+    const ss = String(time.getSeconds()).padStart(2, '0');
+    return `<div style="padding:4px 0;border-bottom:1px solid var(--border);font-size:0.85em;">
+      <span style="color:var(--text-dim);margin-right:6px;">${hh}:${mm}:${ss}</span>
+      ${escapeHtml(n.text)}
+    </div>`;
+  }).join('') || '<p style="color:var(--text-dim)">Нет записей</p>';
+
+  openModal('modal-history');
+}
+
+// ============================================================
+// CANVAS CLICK HANDLER
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  const canvas = document.getElementById('board-canvas');
+  canvas.addEventListener('click', (e) => {
+    if (viewMode !== '2d') return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = 760 / rect.width;
+    const scaleY = 760 / rect.height;
+    const cx = (e.clientX - rect.left) * scaleX;
+    const cy = (e.clientY - rect.top) * scaleY;
+
+    const cellIndex = getCellFromClick(cx, cy);
+    if (cellIndex >= 0) {
+      showCellInfo(cellIndex, e.clientX, e.clientY);
+    } else {
+      closeCellInfo();
+    }
+  });
+
+  // Close cell info on outside click
+  document.addEventListener('click', (e) => {
+    const modal = document.getElementById('cell-info-modal');
+    if (modal.classList.contains('active') && !modal.contains(e.target) && e.target.id !== 'board-canvas') {
+      closeCellInfo();
+    }
+  });
+});
+
+// ============================================================
 // INIT: Reconnection and session restore
 // ============================================================
 window.addEventListener('beforeunload', () => {
@@ -1321,6 +2040,9 @@ window.addEventListener('beforeunload', () => {
 });
 
 document.addEventListener('DOMContentLoaded', async () => {
+  initTheme();
+  loadConfirmSetting();
+
   const urlParams = new URLSearchParams(window.location.search);
   const joinId = urlParams.get('room');
   if (joinId) {
@@ -1336,6 +2058,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (isInRoom) {
           currentRoom = result.room;
           roomId = savedRoomId;
+          // Initialize chat count
+          lastChatCount = (currentRoom.chat || []).length;
+
           if (currentRoom.state === 'lobby') {
             showScreen('screen-lobby');
             renderLobby();
