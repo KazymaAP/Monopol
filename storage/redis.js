@@ -15,13 +15,12 @@ function getRedisClient() {
   return redis;
 }
 
-const ROOM_TTL = 86400; // 24 hours in seconds
+const ROOM_TTL = 86400;
 
 async function getRoom(roomId) {
   const client = getRedisClient();
   const data = await client.get(`room:${roomId}`);
   if (!data) return null;
-  // @upstash/redis automatically deserializes JSON
   return typeof data === 'string' ? JSON.parse(data) : data;
 }
 

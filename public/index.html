@@ -27,7 +27,6 @@ body {
 h1 { font-size: 1.4em; text-align: center; margin-bottom: 12px; }
 h2 { font-size: 1.1em; margin-bottom: 8px; }
 
-/* Lobby */
 .lobby-info { background: var(--surface); border-radius: 12px; padding: 16px; margin: 8px 0; }
 .room-code { font-size: 2em; font-weight: bold; text-align: center; color: var(--accent); letter-spacing: 4px; }
 .player-list { list-style: none; }
@@ -36,9 +35,8 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 .settings-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
 .settings-row input { width: 80px; padding: 4px 8px; border-radius: 6px; border: 1px solid #555; background: #222; color: #fff; }
 
-/* Buttons */
-.btn { 
-  display: inline-block; padding: 10px 18px; border: none; border-radius: 8px; 
+.btn {
+  display: inline-block; padding: 10px 18px; border: none; border-radius: 8px;
   font-size: 0.9em; font-weight: 600; cursor: pointer; transition: all 0.2s;
   color: white; text-align: center;
 }
@@ -50,18 +48,16 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 .btn-block { display: block; width: 100%; margin: 6px 0; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Game Board */
 .game-container { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
-.board-wrapper { 
+.board-wrapper {
   position: relative; width: 100%; max-width: 380px; margin: 0 auto;
-  aspect-ratio: 1; 
+  aspect-ratio: 1;
 }
 .board-canvas { width: 100%; height: 100%; }
 
-/* Player HUD */
 .hud { display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; padding: 4px 0; }
-.hud-player { 
-  background: var(--surface); border-radius: 8px; padding: 6px 10px; 
+.hud-player {
+  background: var(--surface); border-radius: 8px; padding: 6px 10px;
   font-size: 0.75em; display: flex; align-items: center; gap: 4px;
   border: 2px solid transparent;
 }
@@ -69,40 +65,35 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 .hud-player.bankrupt { opacity: 0.4; text-decoration: line-through; }
 .hud-balance { font-weight: bold; }
 
-/* Action Bar */
-.action-bar { 
-  display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; 
+.action-bar {
+  display: flex; flex-wrap: wrap; gap: 4px; justify-content: center;
   padding: 8px; background: var(--surface); border-radius: 12px;
 }
 
-/* Dice */
 .dice-display { text-align: center; font-size: 2em; margin: 4px 0; }
 
-/* Notifications */
-.notifications { 
-  max-height: 120px; overflow-y: auto; background: var(--surface); 
+.notifications {
+  max-height: 120px; overflow-y: auto; background: var(--surface);
   border-radius: 8px; padding: 8px; font-size: 0.75em; margin: 4px 0;
 }
 .notif-item { padding: 2px 0; border-bottom: 1px solid #222; color: var(--text-dim); }
 .notif-item:last-child { border: none; color: var(--text); }
 
-/* Modals */
-.modal-overlay { 
-  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
-  background: rgba(0,0,0,0.7); z-index: 1000; 
+.modal-overlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.7); z-index: 1000;
   justify-content: center; align-items: center; padding: 16px;
 }
 .modal-overlay.active { display: flex; }
-.modal { 
-  background: var(--surface); border-radius: 16px; padding: 20px; 
+.modal {
+  background: var(--surface); border-radius: 16px; padding: 20px;
   max-width: 360px; width: 100%; max-height: 80vh; overflow-y: auto;
 }
 .modal h3 { margin-bottom: 12px; }
 .modal-close { float: right; cursor: pointer; font-size: 1.5em; line-height: 1; }
 
-/* Property Card */
-.prop-card { 
-  background: #222; border-radius: 8px; padding: 8px; margin: 4px 0; 
+.prop-card {
+  background: #222; border-radius: 8px; padding: 8px; margin: 4px 0;
   display: flex; justify-content: space-between; align-items: center;
   font-size: 0.8em;
 }
@@ -110,36 +101,57 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 .prop-card-info { flex: 1; }
 .prop-card-actions { display: flex; gap: 4px; }
 
-/* Tabs */
 .tabs { display: flex; gap: 2px; margin-bottom: 8px; }
 .tab { flex: 1; padding: 8px; text-align: center; background: #222; cursor: pointer; font-size: 0.8em; border-radius: 6px 6px 0 0; }
 .tab.active { background: var(--primary); }
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
-/* Auction */
-.auction-box { 
-  background: var(--surface); border: 2px solid var(--accent); 
+.auction-box {
+  background: var(--surface); border: 2px solid var(--accent);
   border-radius: 12px; padding: 16px; text-align: center; margin: 8px 0;
 }
 .auction-timer { font-size: 2em; color: var(--accent); font-weight: bold; }
-.auction-bid-input { 
-  width: 100px; padding: 8px; border-radius: 6px; border: 1px solid #555; 
+.auction-bid-input {
+  width: 100px; padding: 8px; border-radius: 6px; border: 1px solid #555;
   background: #222; color: #fff; text-align: center; font-size: 1.1em;
 }
 
-/* Deal panel */
 .deal-item {
   background: #222; border-radius: 8px; padding: 8px; margin: 4px 0;
   font-size: 0.8em; border-left: 3px solid var(--accent);
 }
 
-/* Scrollbar */
+.debt-box {
+  background: #c62828;
+  color: #fff;
+  border-radius: 12px;
+  padding: 12px 16px;
+  text-align: center;
+  margin: 8px 0;
+  font-weight: bold;
+}
+.debt-box p { font-weight: normal; margin-top: 4px; }
+
+.phase-hint {
+  text-align: center;
+  font-size: 0.8em;
+  color: var(--text-dim);
+  padding: 4px 0;
+}
+
+.toast {
+  position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+  background: #333; color: #fff; padding: 8px 16px; border-radius: 8px;
+  font-size: 0.85em; z-index: 2000; opacity: 0; transition: opacity 0.3s;
+  pointer-events: none;
+}
+.toast.visible { opacity: 1; }
+
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #555; border-radius: 2px; }
 
-/* Responsive */
 @media (max-width: 400px) {
   .board-wrapper { max-width: 340px; }
   .btn { padding: 8px 12px; font-size: 0.8em; }
@@ -155,7 +167,7 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
   <div style="max-width:300px;margin:0 auto;">
     <button class="btn btn-primary btn-block" onclick="showCreateRoom()">Создать комнату</button>
     <div style="margin:16px 0;text-align:center;color:var(--text-dim);">— или —</div>
-    <input id="join-code" type="text" placeholder="Код комнаты" maxlength="6" 
+    <input id="join-code" type="text" placeholder="Код комнаты" maxlength="6"
       style="display:block;width:100%;padding:12px;border-radius:8px;border:1px solid #555;background:#222;color:#fff;text-align:center;font-size:1.2em;letter-spacing:3px;margin-bottom:8px;">
     <button class="btn btn-secondary btn-block" onclick="joinRoom()">Присоединиться</button>
   </div>
@@ -173,8 +185,8 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
   <ul class="player-list" id="lobby-players"></ul>
   <div id="lobby-settings" style="margin-top:12px;">
     <h2>Настройки:</h2>
-    <div class="settings-row"><span>Стартовый капитал</span><input id="set-money" type="number" value="1500" min="500" max="10000" step="100"></div>
-    <div class="settings-row"><span>Таймер аукциона (сек)</span><input id="set-timer" type="number" value="10" min="5" max="60"></div>
+    <div class="settings-row"><span>Стартовый капитал</span><input id="set-money" type="number" value="1500" min="100" max="50000" step="100"></div>
+    <div class="settings-row"><span>Таймер аукциона (сек)</span><input id="set-timer" type="number" value="10" min="3" max="120"></div>
     <div class="settings-row"><span>Полная группа для стройки</span><input id="set-fullgroup" type="checkbox" checked></div>
     <button class="btn btn-secondary btn-small" onclick="updateSettings()">Сохранить настройки</button>
   </div>
@@ -185,21 +197,14 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
 <!-- SCREEN: GAME -->
 <div id="screen-game" class="screen">
   <div class="game-container">
-    <!-- Player HUD -->
     <div class="hud" id="game-hud"></div>
-    
-    <!-- Dice -->
     <div class="dice-display" id="dice-display">&#11036; &#11036;</div>
-    
-    <!-- Board -->
+    <div id="debt-panel"></div>
+    <div class="phase-hint" id="phase-hint"></div>
     <div class="board-wrapper">
       <canvas id="board-canvas" class="board-canvas" width="760" height="760"></canvas>
     </div>
-    
-    <!-- Action Bar -->
     <div class="action-bar" id="action-bar"></div>
-    
-    <!-- Auction UI -->
     <div id="auction-ui" style="display:none;">
       <div class="auction-box">
         <h3 id="auction-title">Аукцион</h3>
@@ -212,11 +217,7 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
         </div>
       </div>
     </div>
-    
-    <!-- Notifications -->
     <div class="notifications" id="notifications"></div>
-    
-    <!-- Bottom buttons -->
     <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:center;">
       <button class="btn btn-secondary btn-small" onclick="showPropertyModal()">Имущество</button>
       <button class="btn btn-secondary btn-small" onclick="showAgreementsModal()">Соглашения</button>
@@ -315,9 +316,12 @@ h2 { font-size: 1.1em; margin-bottom: 8px; }
   </div>
 </div>
 
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
 <script>
 // ============================================================
-// UTILITY: XSS Protection (SEC-02)
+// UTILITY: XSS Protection
 // ============================================================
 function escapeHtml(str) {
   if (!str) return '';
@@ -327,6 +331,18 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+// ============================================================
+// TOAST NOTIFICATIONS
+// ============================================================
+let toastTimeout = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('visible');
+  if (toastTimeout) clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => el.classList.remove('visible'), 3000);
 }
 
 // ============================================================
@@ -346,7 +362,6 @@ if (tg) {
     userId = String(user.id);
     userName = user.first_name + (user.last_name ? ' ' + user.last_name : '');
   }
-  // Apply Telegram theme
   if (tg.colorScheme === 'light') {
     document.documentElement.style.setProperty('--bg', '#f5f5f5');
     document.documentElement.style.setProperty('--surface', '#fff');
@@ -355,7 +370,6 @@ if (tg) {
   }
 }
 
-// Fallback for testing outside Telegram (dev mode)
 if (!userId) {
   userId = 'user_' + Math.random().toString(36).substr(2, 6);
   userName = 'Игрок ' + userId.substr(-4);
@@ -368,15 +382,14 @@ let currentRoom = null;
 let roomId = null;
 let pollInterval = null;
 let auctionInterval = null;
-let actionLock = false; // Protection against double-clicks
+let actionLock = false;
 
-// Offscreen canvas for static board caching
 let offscreenCanvas = null;
 let offscreenCtx = null;
 let boardCacheValid = false;
 
 // ============================================================
-// API CALLS with action lock protection
+// API CALLS with error handling and timeouts
 // ============================================================
 const API = '/api';
 
@@ -385,12 +398,32 @@ async function apiCall(endpoint, body) {
   if (initData) {
     headers['X-Telegram-Init-Data'] = initData;
   }
-  const res = await fetch(`${API}/${endpoint}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ ...body, playerId: userId, playerName: userName }),
-  });
-  return await res.json();
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(`${API}/${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...body, playerId: userId, playerName: userName }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { success: false, error: data.error || `Ошибка сервера (${res.status})` };
+    }
+
+    return await res.json();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { success: false, error: 'Таймаут подключения' };
+    }
+    return { success: false, error: 'Ошибка сети. Попробуйте позже.' };
+  }
 }
 
 async function apiGet(endpoint, params = {}) {
@@ -399,18 +432,40 @@ async function apiGet(endpoint, params = {}) {
   if (initData) {
     headers['X-Telegram-Init-Data'] = initData;
   }
-  const res = await fetch(`${API}/${endpoint}?${qs}`, { headers });
-  return await res.json();
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch(`${API}/${endpoint}?${qs}`, {
+      headers,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return { success: false, error: data.error || `Ошибка сервера (${res.status})` };
+    }
+
+    return await res.json();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { success: false, error: 'Таймаут подключения' };
+    }
+    return { success: false, error: 'Ошибка сети' };
+  }
 }
 
-/**
- * Safe API call with action lock to prevent double-clicks
- */
 async function safeApiCall(endpoint, body) {
   if (actionLock) return null;
   actionLock = true;
   try {
     const result = await apiCall(endpoint, body);
+    if (result && !result.success && result.error) {
+      showToast(result.error);
+    }
     return result;
   } finally {
     actionLock = false;
@@ -441,24 +496,18 @@ function openModal(id) {
 }
 
 // ============================================================
-// SESSION PERSISTENCE (P1: Reconnection)
+// SESSION PERSISTENCE
 // ============================================================
 function saveSession(rid) {
-  try {
-    localStorage.setItem('monopoly_roomId', rid);
-  } catch (e) { /* ignore */ }
+  try { localStorage.setItem('monopoly_roomId', rid); } catch (e) { /* ignore */ }
 }
 
 function loadSession() {
-  try {
-    return localStorage.getItem('monopoly_roomId') || null;
-  } catch (e) { return null; }
+  try { return localStorage.getItem('monopoly_roomId') || null; } catch (e) { return null; }
 }
 
 function clearSession() {
-  try {
-    localStorage.removeItem('monopoly_roomId');
-  } catch (e) { /* ignore */ }
+  try { localStorage.removeItem('monopoly_roomId'); } catch (e) { /* ignore */ }
 }
 
 function resetGame() {
@@ -525,7 +574,12 @@ async function updateSettings() {
     auctionTimer: parseInt(document.getElementById('set-timer').value) || 10,
     requireFullGroup: document.getElementById('set-fullgroup').checked,
   };
-  await safeApiCall('settings_update', { roomId, settings });
+  const result = await safeApiCall('settings_update', { roomId, settings });
+  if (result && result.success) {
+    currentRoom = result.room;
+    renderLobby();
+    showToast('Настройки сохранены');
+  }
 }
 
 // ============================================================
@@ -534,11 +588,10 @@ async function updateSettings() {
 function startPolling() {
   if (pollInterval) clearInterval(pollInterval);
   pollInterval = setInterval(async () => {
-    if (!roomId) return;
+    if (!roomId || actionLock) return;
     const lastUpdate = currentRoom ? currentRoom.lastUpdate : 0;
     const result = await apiGet('state', { roomId, lastUpdate: String(lastUpdate) });
     if (result.success) {
-      // Version check: skip full re-render if nothing changed
       if (result.notModified) return;
 
       currentRoom = result.room;
@@ -552,7 +605,7 @@ function startPolling() {
       } else if (currentRoom.state === 'finished') {
         showScreen('screen-gameover');
         const winner = currentRoom.players.find(p => p.id === currentRoom.winner);
-        document.getElementById('winner-text').textContent = winner ? `${escapeHtml(winner.name)} побеждает!` : 'Ничья!';
+        document.getElementById('winner-text').textContent = winner ? `${winner.name} побеждает!` : 'Ничья!';
         clearInterval(pollInterval);
         pollInterval = null;
         clearSession();
@@ -567,10 +620,10 @@ function startPolling() {
 function renderLobby() {
   document.getElementById('lobby-code').textContent = currentRoom.id;
   const list = document.getElementById('lobby-players');
-  list.innerHTML = currentRoom.players.map(p => 
+  list.innerHTML = currentRoom.players.map(p =>
     `<li><span class="player-dot" style="background:${escapeHtml(p.color)}"></span>${escapeHtml(p.name)}${p.id === currentRoom.hostId ? ' &#128081;' : ''}</li>`
   ).join('');
-  
+
   const isHost = currentRoom.hostId === userId;
   document.getElementById('lobby-settings').style.display = isHost ? 'block' : 'none';
   document.getElementById('btn-start').style.display = isHost ? 'block' : 'none';
@@ -641,9 +694,6 @@ function getCellPosition(index) {
   return { x: 0, y: 0 };
 }
 
-/**
- * Draw the static part of the board to an offscreen canvas (P1: performance)
- */
 function drawStaticBoard() {
   const S = 760;
   const CORNER = 76;
@@ -659,15 +709,12 @@ function drawStaticBoard() {
   const ctx = offscreenCtx;
   ctx.clearRect(0, 0, S, S);
 
-  // Background
   ctx.fillStyle = '#c8e6c9';
   ctx.fillRect(0, 0, S, S);
 
-  // Center area
   ctx.fillStyle = '#e8f5e9';
   ctx.fillRect(CORNER, CORNER, S - 2*CORNER, S - 2*CORNER);
 
-  // Center text
   ctx.fillStyle = '#2e7d32';
   ctx.font = 'bold 28px sans-serif';
   ctx.textAlign = 'center';
@@ -675,7 +722,6 @@ function drawStaticBoard() {
   ctx.font = '14px sans-serif';
   ctx.fillText('Telegram Edition', S/2, S/2 + 15);
 
-  // Draw cell outlines, color bars, and names
   for (let i = 0; i < 40; i++) {
     const cell = BOARD_DATA[i];
     let x, y, w, h;
@@ -689,14 +735,12 @@ function drawStaticBoard() {
     else if (i === 30) { x = S - CORNER; y = 0; w = CORNER; h = CORNER; }
     else if (i < 40) { x = S - CORNER; y = CORNER + EDGE * (i - 31); w = CORNER; h = EDGE; }
 
-    // Cell background
     ctx.fillStyle = '#fff';
     ctx.fillRect(x, y, w, h);
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 1;
     ctx.strokeRect(x, y, w, h);
 
-    // Color bar for properties
     if (cell.color && (cell.type === 'property' || cell.type === 'railroad' || cell.type === 'utility')) {
       ctx.fillStyle = cell.color;
       if (i >= 1 && i <= 9) { ctx.fillRect(x, y, w, 12); }
@@ -705,7 +749,6 @@ function drawStaticBoard() {
       else if (i >= 31 && i <= 39) { ctx.fillRect(x, y, 12, h); }
     }
 
-    // Cell name
     ctx.fillStyle = '#333';
     ctx.font = '9px sans-serif';
     ctx.textAlign = 'center';
@@ -725,7 +768,7 @@ function drawStaticBoard() {
       ctx.fillText(cell.name, 0, 0);
       ctx.restore();
     } else {
-      const nameY = (i >= 1 && i <= 9) ? y + h - 10 : 
+      const nameY = (i >= 1 && i <= 9) ? y + h - 10 :
                     (i >= 21 && i <= 29) ? y + 14 : y + h/2 + 3;
       ctx.fillText(cell.name, x + w/2, nameY);
     }
@@ -741,15 +784,12 @@ function drawBoard() {
   const CORNER = 76;
   const EDGE = (S - 2 * CORNER) / 9;
 
-  // Draw static background from offscreen cache
   if (!boardCacheValid) {
     drawStaticBoard();
   }
   ctx.drawImage(offscreenCanvas, 0, 0);
 
-  // Draw dynamic elements: ownership, houses, mortgaged, player tokens
   for (let i = 0; i < 40; i++) {
-    const cell = BOARD_DATA[i];
     let x, y, w, h;
 
     if (i === 0) { x = S - CORNER; y = S - CORNER; w = CORNER; h = CORNER; }
@@ -761,7 +801,6 @@ function drawBoard() {
     else if (i === 30) { x = S - CORNER; y = 0; w = CORNER; h = CORNER; }
     else if (i < 40) { x = S - CORNER; y = CORNER + EDGE * (i - 31); w = CORNER; h = EDGE; }
 
-    // Ownership indicator
     const prop = currentRoom?.properties?.[i];
     if (prop) {
       const owner = currentRoom.players.find(p => p.id === prop.ownerId);
@@ -771,7 +810,6 @@ function drawBoard() {
         ctx.fillRect(x + 2, y + 2, w - 4, h - 4);
         ctx.globalAlpha = 1;
       }
-      // Houses
       if (prop.houses > 0 && prop.houses < 5) {
         for (let hi = 0; hi < prop.houses; hi++) {
           ctx.fillStyle = '#4caf50';
@@ -787,7 +825,6 @@ function drawBoard() {
         else if (i >= 21 && i <= 29) ctx.fillRect(x + w/2 - 8, y + h - 26, 16, 10);
         else if (i >= 31 && i <= 39) ctx.fillRect(x + 14, y + h/2 - 8, 10, 16);
       }
-      // Mortgaged
       if (prop.mortgaged) {
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
         ctx.fillRect(x, y, w, h);
@@ -799,7 +836,6 @@ function drawBoard() {
     }
   }
 
-  // Draw player tokens
   if (currentRoom?.players) {
     const positionCounts = {};
     currentRoom.players.forEach(p => {
@@ -838,9 +874,13 @@ function drawBoard() {
 function renderGame() {
   if (!currentRoom) return;
 
+  const currentPlayerId = currentRoom.players[currentRoom.currentPlayerIndex]?.id;
+  const me = currentRoom.players.find(p => p.id === userId);
+  const phase = currentRoom.turnPhase;
+  const isMyTurn = currentPlayerId === userId;
+
   // HUD
   const hud = document.getElementById('game-hud');
-  const currentPlayerId = currentRoom.players[currentRoom.currentPlayerIndex]?.id;
   hud.innerHTML = currentRoom.players.map(p => `
     <div class="hud-player ${p.id === currentPlayerId ? 'active' : ''} ${p.bankrupt ? 'bankrupt' : ''}">
       <span class="player-dot" style="background:${escapeHtml(p.color)}"></span>
@@ -857,23 +897,49 @@ function renderGame() {
     diceEl.textContent = diceEmoji[currentRoom.lastDice[0]] + ' ' + diceEmoji[currentRoom.lastDice[1]];
   }
 
-  // Draw board
+  // Debt panel
+  const debtPanel = document.getElementById('debt-panel');
+  if (phase === 'manage' && currentRoom.debtInfo && isMyTurn) {
+    const creditorName = currentRoom.debtInfo.type === 'player'
+      ? (currentRoom.players.find(p => p.id === currentRoom.debtInfo.creditorId)?.name || '?')
+      : 'банку';
+    debtPanel.innerHTML = `
+      <div class="debt-box">
+        <h3>&#9888; ДОЛГ: ${currentRoom.debtInfo.amount}$</h3>
+        <p>Выплатить ${escapeHtml(creditorName)}</p>
+        <p style="font-size:0.85em;margin-top:4px;">Продайте дома или заложите имущество</p>
+      </div>
+    `;
+  } else {
+    debtPanel.innerHTML = '';
+  }
+
+  // Phase hint
+  const phaseHint = document.getElementById('phase-hint');
+  if (isMyTurn && !me?.bankrupt) {
+    const hints = {
+      'roll': me?.inJail ? 'Вы в тюрьме. Бросьте дубль, заплатите 50$ или используйте карту.' : 'Ваш ход. Бросьте кубик.',
+      'buy': 'Купить или выставить на аукцион?',
+      'auction': 'Идёт аукцион...',
+      'manage': 'Погасите долг.',
+      'endturn': 'Завершите ход.',
+    };
+    phaseHint.textContent = hints[phase] || '';
+  } else if (!me?.bankrupt) {
+    const currentName = currentRoom.players[currentRoom.currentPlayerIndex]?.name || '';
+    phaseHint.textContent = `Ход: ${currentName}`;
+  } else {
+    phaseHint.textContent = 'Вы выбыли из игры.';
+  }
+
   drawBoard();
-
-  // Action bar
   renderActions();
-
-  // Auction UI
   renderAuction();
-
-  // Notifications
   renderNotifications();
 
   // Check if we need bankrupt modal
-  const me = currentRoom.players.find(p => p.id === userId);
-  if (me && currentRoom.turnPhase === 'manage' && currentPlayerId === userId && me.balance < 0) {
-    const canRecover = canPlayerRecover(me);
-    if (!canRecover) {
+  if (me && phase === 'manage' && currentPlayerId === userId && me.balance < 0) {
+    if (!canPlayerRecover(me)) {
       openModal('modal-bankrupt');
       renderBankruptModal();
     }
@@ -905,7 +971,7 @@ function renderActions() {
 
   let buttons = '';
 
-  if (isMyTurn && !me.bankrupt) {
+  if (isMyTurn && me && !me.bankrupt) {
     const disabled = actionLock ? 'disabled' : '';
     if (phase === 'roll') {
       buttons += `<button class="btn btn-primary" onclick="doRoll()" ${disabled}>&#127922; Бросить кубик</button>`;
@@ -918,7 +984,7 @@ function renderActions() {
     }
     if (phase === 'buy') {
       const cell = BOARD_DATA[me.position];
-      buttons += `<button class="btn btn-primary" onclick="doBuy()" ${disabled}>Купить ${escapeHtml(cell?.name || '')}</button>`;
+      buttons += `<button class="btn btn-primary" onclick="doBuy()" ${disabled}>Купить ${escapeHtml(cell?.name || '')} (${cell?.price || 0}$)</button>`;
       buttons += `<button class="btn btn-secondary" onclick="doAuctionStart()" ${disabled}>Аукцион</button>`;
     }
     if (phase === 'endturn') {
@@ -932,7 +998,12 @@ function renderActions() {
     }
   }
 
-  bar.innerHTML = buttons || `<span style="color:var(--text-dim);font-size:0.85em;">Ожидание хода: ${escapeHtml(currentRoom.players[currentRoom.currentPlayerIndex]?.name)}</span>`;
+  if (!buttons) {
+    const currentName = escapeHtml(currentRoom.players[currentRoom.currentPlayerIndex]?.name || '');
+    bar.innerHTML = `<span style="color:var(--text-dim);font-size:0.85em;">Ожидание: ${currentName}</span>`;
+  } else {
+    bar.innerHTML = buttons;
+  }
 }
 
 function renderAuction() {
@@ -949,16 +1020,17 @@ function renderAuction() {
   document.getElementById('auction-title').textContent = `Аукцион: ${cell?.name || ''}`;
 
   const bidder = auction.currentBidderId ? currentRoom.players.find(p => p.id === auction.currentBidderId) : null;
-  document.getElementById('auction-current-bid').textContent = 
+  document.getElementById('auction-current-bid').textContent =
     auction.currentBid > 0 ? `Текущая ставка: ${auction.currentBid}$ (${escapeHtml(bidder?.name || '?')})` : 'Ставок нет';
 
-  // Can I bid? (initiator '__bankrupt__' means everyone can bid in bankruptcy auctions)
-  const canBid = auction.initiatorId !== userId && !currentRoom.players.find(p => p.id === userId)?.bankrupt;
+  const me = currentRoom.players.find(p => p.id === userId);
+  const canBid = auction.initiatorId !== userId && me && !me.bankrupt;
   document.getElementById('auction-controls').style.display = canBid ? 'block' : 'none';
   document.getElementById('auction-input').min = auction.currentBid + 1;
-  document.getElementById('auction-input').value = auction.currentBid + 1;
+  if (!document.getElementById('auction-input').matches(':focus')) {
+    document.getElementById('auction-input').value = auction.currentBid + 1;
+  }
 
-  // Timer polling
   if (!auctionInterval) {
     auctionInterval = setInterval(async () => {
       if (!roomId) { clearInterval(auctionInterval); auctionInterval = null; return; }
@@ -968,7 +1040,7 @@ function renderAuction() {
         auctionInterval = null;
         if (result.room) { currentRoom = result.room; renderGame(); }
       } else if (result.remaining !== undefined) {
-        document.getElementById('auction-timer').textContent = Math.ceil(result.remaining / 1000);
+        document.getElementById('auction-timer').textContent = Math.max(0, Math.ceil(result.remaining / 1000));
       }
     }, 1000);
   }
@@ -982,7 +1054,7 @@ function renderNotifications() {
 }
 
 // ============================================================
-// GAME ACTIONS (all use safeApiCall for double-click protection)
+// GAME ACTIONS
 // ============================================================
 async function doRoll() {
   const result = await safeApiCall('roll', { roomId });
@@ -1090,7 +1162,6 @@ function showAgreementsModal() {
     `;
   }).join('') || '<p style="color:var(--text-dim)">Нет активных соглашений</p>';
 
-  // Form
   const select = document.getElementById('agr-player');
   select.innerHTML = currentRoom.players
     .filter(p => p.id !== userId && !p.bankrupt)
@@ -1130,7 +1201,7 @@ function showDealsModal() {
   const colorNames = { brown: 'Коричневая', lightblue: 'Голубая', pink: 'Розовая', orange: 'Оранжевая', red: 'Красная', yellow: 'Жёлтая', green: 'Зелёная', blue: 'Синяя' };
 
   list.innerHTML = deals.map(d => {
-    const members = d.members.map(id => escapeHtml(currentRoom.players.find(p => p.id === id)?.name)).join(', ');
+    const members = d.members.map(id => escapeHtml(currentRoom.players.find(p => p.id === id)?.name || '?')).join(', ');
     return `
       <div class="deal-item">
         <strong>${escapeHtml(colorNames[d.color] || d.color)}</strong>: ${members}<br>
@@ -1139,14 +1210,11 @@ function showDealsModal() {
     `;
   }).join('') || '<p style="color:var(--text-dim)">Нет активных договоров</p>';
 
-  // Form: color select
   const colorSelect = document.getElementById('deal-color');
   const colorGroupKeys = ['brown','lightblue','pink','orange','red','yellow','green','blue'];
-  const colorNames2 = { brown: 'Коричневая', lightblue: 'Голубая', pink: 'Розовая', orange: 'Оранжевая', red: 'Красная', yellow: 'Жёлтая', green: 'Зелёная', blue: 'Синяя' };
-  colorSelect.innerHTML = '<option value="">Выберите цвет</option>' + 
-    colorGroupKeys.map(c => `<option value="${c}">${colorNames2[c]}</option>`).join('');
+  colorSelect.innerHTML = '<option value="">Выберите цвет</option>' +
+    colorGroupKeys.map(c => `<option value="${c}">${escapeHtml(colorNames[c])}</option>`).join('');
 
-  // Members checkboxes
   const membersDiv = document.getElementById('deal-members-list');
   membersDiv.innerHTML = currentRoom.players
     .filter(p => p.id !== userId && !p.bankrupt)
@@ -1160,11 +1228,10 @@ async function createDeal() {
   const splitType = document.getElementById('deal-split').value;
   const members = [userId, ...[...document.querySelectorAll('.deal-member-cb:checked')].map(cb => cb.value)];
 
-  if (!color || members.length < 2) return alert('Выберите цвет и партнёров');
+  if (!color || members.length < 2) return showToast('Выберите цвет и партнёров');
 
   const result = await safeApiCall('monopoly_create', { roomId, color, members, splitType });
   if (result && result.success) { currentRoom = result.room; showDealsModal(); }
-  else if (result) alert(result.error || 'Ошибка');
 }
 
 function showTradeModal() {
@@ -1173,9 +1240,8 @@ function showTradeModal() {
     .filter(p => p.id !== userId && !p.bankrupt)
     .map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
 
-  // My properties for offering
   const offerDiv = document.getElementById('trade-offer-props');
-  const myProps = Object.entries(currentRoom.properties).filter(([, p]) => p.ownerId === userId);
+  const myProps = Object.entries(currentRoom.properties).filter(([, p]) => p.ownerId === userId && p.houses === 0);
   offerDiv.innerHTML = myProps.map(([cellId]) => {
     const cell = BOARD_DATA[cellId];
     return `<label style="display:block;"><input type="checkbox" class="trade-offer-cb" value="${cellId}"> ${escapeHtml(cell.name)}</label>`;
@@ -1183,7 +1249,7 @@ function showTradeModal() {
 
   function updateRequestProps() {
     const targetId = select.value;
-    const targetProps = Object.entries(currentRoom.properties).filter(([, p]) => p.ownerId === targetId);
+    const targetProps = Object.entries(currentRoom.properties).filter(([, p]) => p.ownerId === targetId && p.houses === 0);
     document.getElementById('trade-request-props').innerHTML = targetProps.map(([cellId]) => {
       const cell = BOARD_DATA[cellId];
       return `<label style="display:block;"><input type="checkbox" class="trade-request-cb" value="${cellId}"> ${escapeHtml(cell.name)}</label>`;
@@ -1192,7 +1258,6 @@ function showTradeModal() {
   select.onchange = updateRequestProps;
   updateRequestProps();
 
-  // Incoming trades
   const incoming = (currentRoom.trades || []).filter(t => t.toId === userId && t.status === 'pending');
   document.getElementById('trade-incoming').innerHTML = incoming.map(t => {
     const from = currentRoom.players.find(p => p.id === t.fromId);
@@ -1237,29 +1302,31 @@ function renderBankruptModal() {
 }
 
 async function declareBankruptcy(method) {
+  if (!confirm('Вы уверены? Это действие необратимо!')) return;
   const targetPlayerId = method === 'transfer' ? document.getElementById('bankrupt-target').value : null;
   const result = await safeApiCall('bankrupt', { roomId, method, targetPlayerId });
   if (result && result.success) {
     currentRoom = result.room;
     closeModal('modal-bankrupt');
     renderGame();
-  } else if (result && result.error) {
-    alert(result.error);
   }
 }
 
 // ============================================================
 // INIT: Reconnection and session restore
 // ============================================================
+window.addEventListener('beforeunload', () => {
+  if (pollInterval) clearInterval(pollInterval);
+  if (auctionInterval) clearInterval(auctionInterval);
+});
+
 document.addEventListener('DOMContentLoaded', async () => {
-  // Check if there's a room ID in URL
   const urlParams = new URLSearchParams(window.location.search);
   const joinId = urlParams.get('room');
   if (joinId) {
     document.getElementById('join-code').value = joinId;
   }
 
-  // Try to restore session from localStorage
   const savedRoomId = loadSession();
   if (savedRoomId) {
     try {
@@ -1279,16 +1346,16 @@ document.addEventListener('DOMContentLoaded', async () => {
           } else if (currentRoom.state === 'finished') {
             showScreen('screen-gameover');
             const winner = currentRoom.players.find(p => p.id === currentRoom.winner);
-            document.getElementById('winner-text').textContent = winner ? `${escapeHtml(winner.name)} побеждает!` : 'Ничья!';
+            document.getElementById('winner-text').textContent = winner ? `${winner.name} побеждает!` : 'Ничья!';
             clearSession();
-            return; // Don't start polling
+            return;
           }
           startPolling();
           return;
         }
       }
     } catch (e) {
-      // Failed to restore, clear session
+      // Failed to restore
     }
     clearSession();
   }

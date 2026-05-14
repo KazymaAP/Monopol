@@ -1,424 +1,843 @@
-# Полный аудит кода Monopoly Telegram Mini App
+# Аудит Кода Монополии на Telegram Mini App
+
+Проведён комплексный аудит бэкенда (`api/game.js`), фронтенда (`public/index.html`), конфигурации и архитектуры. Ниже структурированный отчёт по категориям.
 
 ---
 
-## 1. БАГ-ОШИБКИ (логические, рантайм, несоответствия правилам)
+## 1. КРИТИЧЕСКИЕ БАГИ И ЛОГИЧЕСКИЕ ОШИБКИ
 
-### 1.1 КРИТИЧЕСКИЕ
+### 1.1 **BUG-01: Некорректный расчёт аренды для коммунальных предприятий при нескольких владельцах**
 
-**[BUG-01] In-memory store не работает на Vercel вообще**
-- **Файл:** `api/game.js`, строки 8–18
-- **Проблема:** Vercel Serverless Functions — stateless. Каждый вызов может (и будет) обслуживаться разным инстансом. `const rooms = new Map()` **гарантированно теряет данные** между запросами. Это не "ограничение для разработки" — это полная неработоспособность в продакшене.
-- **Последствия:** После создания комнаты следующий запрос `state` или `join` с высокой вероятностью получит `Room not found`.
+**Файл:** `api/game.js`, функция `calculateRent()`
 
-**[BUG-02] Аукцион: таймер проверяется только при клиентском polling**
-- **Файл:** `api/game.js`, case `auction_check`; `public/index.html`, `renderAuction()`
-- **Проблема:** Аукцион завершается только когда **кто-то** вызовет `auction_check`. Если все клиенты закроют вкладку или потеряют связь, аукцион висит вечно. Более того, интервал `auctionInterval` на клиенте создаётся только у того, кто видит аукцион — остальные узнают о завершении только через общий polling (2.5 сек), что создаёт окно для race condition.
-- **Правила:** «После каждой новой ставки таймер сбрасывается на 10 секунд. Если за 10 секунд не поступает новых ставок — завершается.»
+**Строка:** ~270
 
-**[BUG-03] Дубль — игрок не получает повторный бросок корректно**
-- **Файл:** `api/game.js`, case `endturn`, строки ~380–390
-- **Проблема:** 
+**Описание:**
 ```javascript
-if (room.lastDice[0] === room.lastDice[1] && !currentPlayer.inJail && currentPlayer.doublesCount > 0) {
-  room.turnPhase = 'roll';
-```
-После покупки/аукциона/оплаты аренды `doublesCount` может быть уже сброшен (в ветке `!isDoubles` стоит `currentPlayer.doublesCount = 0`). Но если был дубль, `doublesCount` увеличивается до 1–2, и при вызове `endturn` условие сработает. **Однако**: если игрок попал в тюрьму из-за клетки "В ТЮРЬМУ", `turnPhase` будет `'endturn'`, и при вызове `endturn` проверка `!currentPlayer.inJail` не сработает — но `lastDice` всё ещё дубль. Это ок. Но: если карточка Шанс отправила в тюрьму, `lastDice` будет от последнего броска (дубль), а `inJail = true` — тоже ок. 
-
-**Настоящий баг:** при 3-м дубле подряд игрок отправляется в тюрьму и `turnPhase = 'endturn'`. При `endturn` проверяется `room.lastDice[0] === room.lastDice[1]` — true! И `!currentPlayer.inJail` — false (уже в тюрьме). Ок, это работает. Но `doublesCount` не сбрасывается после тюрьмы по дублям — только `jailTurns = 0`. При выходе из тюрьмы `doublesCount` остаётся > 0, что может дать неверный повторный бросок.
-
-**Фикс:**
-```javascript
-// В case 'roll', когда игрок попадает в тюрьму:
-currentPlayer.doublesCount = 0; // добавить эту строку
-```
-
-**[BUG-04] `checkPostMove` вызывает сам себя рекурсивно при картах перемещения — потенциальный бесконечный цикл**
-- **Файл:** `api/game.js`, функция `checkPostMove`
-- **Проблема:** Карта "Шанс" может переместить на другую клетку "Шанс" (поз. 7 → карта "move to 36" теоретически). В текущих картах `CHANCE_CARDS` нет "переместитесь на клетку Шанс", но если игрок перемещается на позицию 10 (Тюрьма/посещение), позицию 0 (Старт) — это безопасно. Но карта `{ type: 'move', to: 39, text: 'Отправляйтесь на Петровку' }` перемещает на Петровку, а потом `checkPostMove` проверяет — если Петровка занята, начисляет аренду. Это корректно.
-
-**Реальная проблема:** Карта `{ type: 'move', to: 10 }` ("Посетите тюрьму без ареста") — при `checkPostMove` на позиции 10 (`type: 'jail'`) — клетка не описана в switch как property/tax/chance/chest/gotojail, поэтому попадает в финальный `room.turnPhase = 'endturn'`. Ок.
-
-**Но:** карта `{ type: 'move', to: 5 }` ("Отправляйтесь на Рижскую ж/д") — если ж/д уже куплена, `checkPostMove` начислит аренду. При этом `diceSum` передаётся из оригинального броска, что корректно для ж/д (не зависит от кубиков). Для коммунальных предприятий — если карта перемещает на utility, `diceSum` используется корректно.
-
-**Однако:** нет защиты от рекурсии. Добавьте guard:
-```javascript
-function checkPostMove(room, player, diceSum, depth = 0) {
-  if (depth > 5) { room.turnPhase = 'endturn'; return; }
-  // ... внутри рекурсивных вызовов передавать depth + 1
+if (cell.type === 'utility') {
+  const ownerUtils = Object.entries(room.properties)
+    .filter(([id, p]) => p.ownerId === prop.ownerId && BOARD[parseInt(id)].type === 'utility')
+    .length;
+  return diceSum * (ownerUtils >= 2 ? 10 : 4);
 }
 ```
 
-**[BUG-05] Проход через Старт при перемещении картой — неверная логика**
-- **Файл:** `api/game.js`, `processCardEffect`, строка с `if (card.to < player.position && card.to !== 10)`
-- **Проблема:** Если игрок стоит на позиции 36 и карта перемещает на позицию 5 (Рижская ж/д), `card.to < player.position` = true, значит +200$. Это корректно. Но если игрок на позиции 3 и карта перемещает на позицию 0 (Старт), `card.to < player.position` = true, и `card.to !== 10` = true, значит +200$. Но перемещение с 3 на 0 **проходит через Старт** (двигаясь назад? или вперёд через всё поле?). В классической Монополии карта "Отправляйтесь на Старт" **всегда** даёт 200$. Но перемещение "назад" на 3 клетки не должно давать 200$. Исключение `card.to !== 10` — ad hoc. 
+**Проблема:** Код считает коммунальные предприятия только по владельцу имущества (`prop.ownerId`), но не учитывает ситуацию, когда коммунальные предприятия находятся в совместном договоре о монополии (`monopolyDeal`). Согласно правилам, договор охватывает только цветовые группы улиц, а коммунальные предприятия не входят ни в какую цветовую группу. Однако логика консистентна — это не баг, но может быть источником путаницы.
 
-**Правильная логика:** Карты перемещения в Монополии всегда двигают вперёд, и если номер целевой клетки меньше текущей — значит прошли через Старт. Исключение — карта "В тюрьму" (но та имеет `type: 'jail'`, не `type: 'move'`). Текущая логика в целом корректна, но исключение для позиции 10 некорректно: если карта "Посетите тюрьму", это не "арест", а "просто посещение" — в классике 200$ за проход через Старт **дают**. Удалите `&& card.to !== 10`.
+**На самом деле**, проблема глубже: если два игрока в договоре о монополии владеют разными коммунальными предприятиями, система будет считать каждое отдельно (множитель 1), вместо того чтобы объединить. Но учитывая определение договора ("на одну цветовую группу"), это скорее недостаток правил, а не баг кода.
 
-**[BUG-06] Банкротство не проверяет фактическую невозможность покрыть долг**
-- **Файл:** `api/game.js`, case `bankrupt`
-- **Проблема:** Игрок может объявить банкротство в любой момент, когда `turnPhase === 'manage'`, без проверки, что он действительно не может покрыть долг. Злоумышленник может объявить банкротство с положительным балансом (или с имуществом, которое можно заложить), чтобы передать имущество союзнику.
-- **Правила:** «Если после всех возможных залогов и продаж баланс всё ещё отрицательный — остаётся только объявить банкротство.»
-- **Фикс:** На сервере проверять, что `canPlayerRecover(player) === false` перед разрешением банкротства.
+**Статус:** Низкий приоритет, но требует уточнения игровых правил.
 
-**[BUG-07] `distributeRent` дважды начисляет деньги владельцу**
-- **Файл:** `api/game.js`, `checkPostMove` → `distributeRent`
-- **Проблема:** В `checkPostMove`:
+---
+
+### 1.2 **BUG-02: Аукцион может "зависнуть" при переходе между игроками**
+
+**Файл:** `api/game.js`, функция `checkAuctionExpiry()`
+
+**Строка:** ~390
+
+**Описание:**
 ```javascript
-player.balance -= rent;
-distributeRent(room, cell.id, rent, player.id);
-```
-А в `distributeRent`, если нет deal:
-```javascript
-const owner = getPlayerById(room, prop.ownerId);
-if (owner) owner.balance += rent;
-```
-Это корректно — деньги снимаются у гостя и начисляются владельцу. **Но:** при наличии deal, если плательщик — участник deal (`deal.members.includes(payerId)`), проверка в `checkPostMove` уже пропускает аренду:
-```javascript
-if (deal && deal.members.includes(player.id)) {
-  room.turnPhase = 'endturn';
-  return;
+function checkAuctionExpiry(room) {
+  if (room.turnPhase !== 'auction' || !room.auction) return false;
+  const elapsed = Date.now() - room.auction.lastBidTime;
+  if (elapsed >= room.auction.timerDuration) {
+    // ... завершение аукциона
+    room.turnPhase = 'endturn';
+    room.lastUpdate = Date.now();
+    return true;
+  }
+  return false;
 }
 ```
-Ок, это корректно.
 
-**Однако:** `distributeRent` проверяет `!deal.members.includes(payerId)`, а если payerId — участник deal — деньги идут owner напрямую. Но мы не должны сюда попасть, потому что ранее уже return. Ок, нет бага.
+**Проблема:** Функция вызывается только:
+- При `GET /api/state` (поллинг)
+- При `GET /api/auction_check` (специальный опрос таймера)
 
-**[BUG-08] При аренде с monopoly deal, rent уже списан у игрока, но `distributeRent` в ветке "normal" не проверяет наличие deal для данного cellId**
-- **Файл:** `api/game.js`, `distributeRent`
-- **Проблема:** `getMonopolyDealForCell` ищет deal по `cell.color`. Но deal может не включать владельца текущей клетки (если он вышел из deal). В этом случае `deal.members.includes(payerId)` = false, и деньги будут распределены по deal.members, которые **не включают** фактического владельца. Owner не получит ничего.
-- **Фикс:** Проверять, что `deal.members.includes(prop.ownerId)` перед распределением через deal.
+Если игрок закрыл приложение или сетевое соединение разорвалось, аукцион может зависнуть в состоянии `'auction'` на сервере, а при попытке другого игрока совершить ход получится ошибка типа "Cannot end turn while auction active" или зависание.
 
-**[BUG-09] Покупка при недостаточном балансе — нет перехода к аукциону**
-- **Файл:** `api/game.js`, case `buy`
-- **Проблема:** Если `balance < price`, сервер возвращает ошибку, но клиент всё равно показывает кнопку "Купить". Игрок не может ни купить, ни отказаться (кнопка аукциона показывается, это ок). Но проблема: на клиенте кнопка "Купить" не дизейблится при недостатке средств.
+**Решение:** Добавить проверку `checkAuctionExpiry()` в начало каждого POST-обработчика (roll, buy и т.д.) перед основной логикой.
 
-**[BUG-10] `endturn` после `payjail` — turnPhase не обновляется для roll**
-- **Файл:** `api/game.js`, case `payjail`
-- **Проблема:** После оплаты 50$ за выход из тюрьмы, `turnPhase` остаётся неопределённым (не устанавливается в `'roll'`). Если баланс >= 0, нет установки `turnPhase = 'roll'` — игрок не может бросить кубик.
-- **Правила:** После выхода из тюрьмы за деньги игрок бросает кубик и двигается.
-- **Фикс:**
+---
+
+### 1.3 **BUG-03: Сброс `doublesCount` при входе в тюрьму через дубль**
+
+**Файл:** `api/game.js`, функция `roll()` (случай трёх дублей)
+
+**Строка:** ~633
+
+**Описание:**
 ```javascript
-case 'payjail': {
-  // ... existing code ...
-  currentPlayer.inJail = false;
+if (currentPlayer.doublesCount >= 3) {
+  currentPlayer.position = 10;
+  currentPlayer.inJail = true;
   currentPlayer.jailTurns = 0;
-  if (currentPlayer.balance >= 0) {
-    room.turnPhase = 'roll'; // ← ДОБАВИТЬ
+  currentPlayer.doublesCount = 0; // ✓ BUG-03 fix отмечен в коде
+  // ...
+}
+```
+
+**Проблема:** Код корректно сбрасывает счётчик при отправке в тюрьму за три дубля, но это исправление уже присутствует (отмечено комментарием `// BUG-03 fix`). Однако в функциях `checkPostMove()` (случаи gotojail и card effects) сброс может быть пропущен в других местах.
+
+**Проверка:** Найти все места, где устанавливается `player.inJail = true`, и убедиться, что везде сбрасывается `doublesCount = 0`.
+
+**Статус:** Судя по комментарию, исправлено, но требует проверки на консистентность.
+
+---
+
+### 1.4 **BUG-04: Отсутствие валидации целостности игры при банкротстве**
+
+**Файл:** `api/game.js`, функция `bankrupt()`
+
+**Строка:** ~1316
+
+**Описание:**
+```javascript
+player.bankrupt = true;
+player.balance = 0;
+
+// Remove from monopoly deals
+room.monopolyDeals = room.monopolyDeals.filter(deal => {
+  deal.members = deal.members.filter(m => m !== playerId);
+  return deal.members.length >= 2;
+});
+```
+
+**Проблема:** При удалении игрока из договора дома остаются на доске, но договор рушится. Если договор был создан для строительства, а все дома принадлежат банкроту, они удаляются (`delete room.properties[cellId]`), но соимущества (дома, построенные партнёром на чужой улице банкрота) могут остаться в странном состоянии.
+
+Более серьёзно: если банкрот в методе `'auction'` выбирает продажу имущества, очередь аукциона задаётся, но если очередь пуста или весь лот продан, система не проверяет, завершена ли игра корректно.
+
+**Статус:** Требует рефакторинга логики банкротства через аукцион.
+
+---
+
+### 1.5 **BUG-05: Неправильный расчёт аренды при морфованных свойствах**
+
+**Файл:** `api/game.js`, функция `calculateRent()`
+
+**Строка:** ~245–290
+
+**Описание:**
+```javascript
+if (cell.type === 'property') {
+  if (prop.houses > 0) {
+    return cell.rent[prop.houses];
+  }
+  const group = COLOR_GROUPS[cell.color];
+  const ownerHasFullGroup = group.every(cid => {
+    const p = room.properties[cid];
+    return p && (p.ownerId === prop.ownerId || isInMonopolyDeal(room, cid, prop.ownerId));
+  });
+  return ownerHasFullGroup ? cell.rent[0] * 2 : cell.rent[0];
+}
+```
+
+**Проблема:** Если свойство заложено (`prop.mortgaged === true`), функция не возвращает 0. Проверка на залог должна быть в самом начале функции (строка 243–244 её уже делает, но это негласно).
+
+**Проверка:**
+```javascript
+if (!prop || prop.mortgaged) return 0; // ← строка 243
+```
+
+Это есть, поэтому баг не критичен, но код хрупкий. Хорошо бы явно проверить перед расчётом.
+
+**Статус:** Низкий приоритет, но требует уточнения.
+
+---
+
+### 1.6 **BUG-06: Игрок может объявить банкротство, даже если может погасить долг**
+
+**Файл:** `api/game.js`, маршрут `bankrupt`
+
+**Строка:** ~1287
+
+**Описание:**
+```javascript
+case 'bankrupt': {
+  // ...
+  // BUG-06 fix: Check if player can still recover
+  if (canPlayerRecoverServer(room, player)) {
+    return res.status(400).json({ error: 'You can still cover the debt by selling houses or mortgaging properties' });
+  }
+```
+
+**Проблема:** Проверка на восстановление уже добавлена (отмечена `// BUG-06 fix`), но это означает, что баг был когда-то. Важно убедиться, что функция `canPlayerRecoverServer()` работает корректно.
+
+**Функция:**
+```javascript
+function canPlayerRecoverServer(room, player) {
+  let potential = player.balance;
+  Object.entries(room.properties).forEach(([cellId, prop]) => {
+    if (prop.ownerId === player.id) {
+      if (prop.houses > 0) {
+        const cell = BOARD[parseInt(cellId)];
+        potential += prop.houses * Math.floor(cell.houseCost / 2);
+      }
+      if (!prop.mortgaged) {
+        const cell = BOARD[parseInt(cellId)];
+        potential += Math.floor(cell.price / 2);
+      }
+    }
+  });
+  return potential >= 0;
+}
+```
+
+**Проблема:** Функция не учитывает, что при продаже домов игрок получает только половину (что верно), но не учитывает, что залог имущества дарует часть стоимости сразу. Например:
+- Баланс: **–100**
+- Улица на 60 (не заложена): можно заложить и получить 30
+- Общее: –100 + 30 = –70 (всё ещё минус, но улица заложена)
+- Вторая улица на 80: +40
+- Итог: –70 + 40 = –30... нужна третья
+
+Логика кажется правильной, но сложна для ручной проверки. **Рекомендация:** добавить unit-тесты.
+
+**Статус:** Исправлено, но требует тестирования.
+
+---
+
+### 1.7 **BUG-07: Утечка памяти в `notifications` массиве**
+
+**Файл:** `api/game.js`, функция `addNotification()`
+
+**Строка:** ~222
+
+**Описание:**
+```javascript
+function addNotification(room, text) {
+  room.notifications.push({ text, time: Date.now() });
+  if (room.notifications.length > 50) room.notifications.shift();
+}
+```
+
+**Проблема:** Лимит 50 уведомлений — это хорошо, но если комната проживёт долго (24 часа по TTL), может накопиться много данных. Более важно: на фронтенде в `renderNotifications()` отображаются последние 10, но лимит 50 на сервере кажется произвольным.
+
+**Статус:** Низкий приоритет, но можно оптимизировать до 20–30.
+
+---
+
+### 1.8 **BUG-08: Распределение аренды в договоре монополии некорректно**
+
+**Файл:** `api/game.js`, функция `distributeRent()`
+
+**Строка:** ~300
+
+**Описание:**
+```javascript
+function distributeRent(room, cellId, rentAmount, payerId) {
+  const deal = getMonopolyDealForCell(room, cellId);
+  const prop = room.properties[cellId];
+
+  // BUG-08 fix: Only distribute through deal if the owner is a member of the deal
+  if (deal && !deal.members.includes(payerId) && deal.members.includes(prop.ownerId)) {
+    if (deal.splitType === 'equal') {
+      const share = Math.floor(rentAmount / deal.members.length);
+      const remainder = rentAmount - share * deal.members.length;
+      deal.members.forEach((memberId, i) => {
+        const player = getPlayerById(room, memberId);
+        if (player) player.balance += share + (i === 0 ? remainder : 0);
+      });
+    } else {
+      // ... по вложениям
+    }
+  } else {
+    // Normal: all goes to owner
+    const owner = getPlayerById(room, prop.ownerId);
+    if (owner) owner.balance += rentAmount;
+  }
+}
+```
+
+**Проблема:** Условие `!deal.members.includes(payerId) && deal.members.includes(prop.ownerId)` проверяет, что плательщик НЕ в договоре, но владелец В договоре. Это означает:
+
+1. Если плательщик **в** договоре, аренда идёт только владельцу (условие ложь, идёт в else). ✓ Верно.
+2. Если плательщик **не в** договоре, а владелец **в** договоре, аренда делится. ✓ Верно.
+3. Если плательщик **не в** договоре, а владелец **не в** договоре — идёт в else (аренда владельцу). ✓ Верно.
+
+Код выглядит корректным, но логика запутана. **Рекомендация:** рефакторить для читаемости с явными комментариями.
+
+**Статус:** Код верен, но требует уточнения в комментариях.
+
+---
+
+### 1.9 **BUG-09: Игрок в тюрьме может получить ещё один дубль и выйти в не-дубль ход**
+
+**Файл:** `api/game.js`, функция `roll()` (случай в тюрьме с дублем)
+
+**Строка:** ~600
+
+**Описание:**
+```javascript
+if (currentPlayer.inJail) {
+  if (isDoubles) {
+    currentPlayer.inJail = false;
+    currentPlayer.jailTurns = 0;
+    currentPlayer.doublesCount = 0; // Reset after jail exit
+    currentPlayer.position = (currentPlayer.position + diceSum) % 40;
+    // ...
+    checkPostMove(room, currentPlayer, diceSum);
+  } else {
+    currentPlayer.jailTurns++;
+    if (currentPlayer.jailTurns >= 3) {
+      // ... платит 50 и выходит
+    }
+  }
+}
+```
+
+**Проблема:** После выхода из тюрьмы через дубль устанавливается `doublesCount = 0`, а не `doublesCount = 1`. По правилам Монополии, если игрок выбросил дубль, он должен бросить ещё раз (получить дополнительный ход). Текущий код это не обеспечивает.
+
+**Правильное поведение:**
+```javascript
+if (isDoubles) {
+  currentPlayer.inJail = false;
+  currentPlayer.doublesCount = 1; // ← Выброшен дубль, будет дополнительный ход
+  currentPlayer.jailTurns = 0;
+  // ...
+}
+```
+
+**Статус:** **КРИТИЧНЫЙ БАГ.** Требует немедленного исправления.
+
+---
+
+### 1.10 **BUG-10: Игрок может построить дом на заложенной улице другого в договоре**
+
+**Файл:** `api/game.js`, маршрут `build`
+
+**Строка:** ~1069
+
+**Описание:**
+```javascript
+const isInDeal = deal && deal.members.includes(playerId) && deal.members.includes(prop.ownerId);
+
+if (!isOwner && !isInDeal) return res.status(403).json({ error: 'Not authorized to build here' });
+
+if (room.settings.requireFullGroup && !hasFullGroup(room, cell.color, playerId)) {
+  return res.status(400).json({ error: 'Need full color group' });
+}
+
+if (prop.houses >= 5) return res.status(400).json({ error: 'Max houses reached' });
+if (prop.mortgaged) return res.status(400).json({ error: 'Property is mortgaged' });
+```
+
+**Проблема:** Проверка на залог корректна (`prop.mortgaged`), но нет проверки, что **все** улицы в группе не заложены. Согласно правилам Монополии, нельзя строить, если любая улица в группе заложена.
+
+**Правильное условие:**
+```javascript
+if (cell.color) {
+  const group = COLOR_GROUPS[cell.color];
+  const anyMortgaged = group.some(cid => room.properties[cid]?.mortgaged);
+  if (anyMortgaged) return res.status(400).json({ error: 'Cannot build: property in group is mortgaged' });
+}
+```
+
+**Статус:** **КРИТИЧНЫЙ БАГ** (нарушает правила).
+
+---
+
+### 1.11 **BUG-11: Согласие на аукцион инициатора некорректно**
+
+**Файл:** `api/game.js`, маршрут `auction_bid`
+
+**Строка:** ~1161
+
+**Описание:**
+```javascript
+if (playerId === room.auction.initiatorId) return res.status(403).json({ error: 'Initiator cannot bid' });
+```
+
+**Проблема:** Логика верна (инициатор не может бить на своём аукционе), но по правилам в случае **банкротного аукциона** (`initiatorId === '__bankrupt__'`) все должны иметь право участвовать, включая самого банкрота (если он ещё в игре, что невозможно, поскольку он уже банкрот). Текущая логика правильно это обрабатывает, но неявно.
+
+**Статус:** Низкий приоритет.
+
+---
+
+### 1.12 **BUG-12: Не учитываются монопольные договоры при проверке полной группы**
+
+**Файл:** `api/game.js`, функция `hasFullGroup()`
+
+**Строка:** ~258
+
+**Описание:**
+```javascript
+function hasFullGroup(room, color, playerId) {
+  const group = COLOR_GROUPS[color];
+  return group.every(cid => {
+    const p = room.properties[cid];
+    if (!p) return false;
+    if (p.ownerId === playerId) return true;
+    return room.monopolyDeals.some(deal =>
+      deal.color === color &&
+      deal.members.includes(playerId) &&
+      deal.members.includes(p.ownerId)
+    );
+  });
+}
+```
+
+**Проблема:** Функция проверяет, что **все** члены договора владеют всеми улицами, но не проверяет, что все улицы принадлежат **членам** договора. Например, если в договоре участвуют Иван и Мария, а одна улица принадлежит Петру, функция вернёт `false` (верно), но логика конкретной проверки запутана.
+
+На самом деле, логика верна: `deal.members.includes(playerId) && deal.members.includes(p.ownerId)` проверяет, что оба (игрок и владелец) в одном договоре, что гарантирует, что все улицы группы в договоре.
+
+**Статус:** Код верен, требует уточнения в комментариях.
+
+---
+
+### 1.13 **BUG-13: Залог не проверяет дома в цветовой группе**
+
+**Файл:** `api/game.js`, маршрут `mortgage`
+
+**Строка:** ~1202
+
+**Описание:**
+```javascript
+// BUG-13 fix: Check if any property in the same color group has houses
+const cell = BOARD[cellId];
+if (cell.color) {
+  const group = COLOR_GROUPS[cell.color];
+  if (group) {
+    const hasHousesInGroup = group.some(cid => {
+      const p = room.properties[cid];
+      return p && p.ownerId === playerId && p.houses > 0;
+    });
+    if (hasHousesInGroup) {
+      return res.status(400).json({ error: 'Sell all houses in color group first' });
+    }
+  }
+}
+```
+
+**Проблема:** Проверка уже добавлена (отмечена `// BUG-13 fix`), что означает, что баг был исправлен. Важно убедиться, что логика применяется ко всем маршрутам залога.
+
+**Статус:** Исправлено.
+
+---
+
+### 1.14 **BUG-14: Неправильный расчёт остаточной стоимости при переводе имущества**
+
+**Файл:** `api/game.js`, функция `calculateResidualValue()` и маршрут `monopoly_exit`
+
+**Строка:** ~497
+
+**Описание:**
+```javascript
+function calculateResidualValue(room, playerId) {
+  let value = 0;
+  Object.entries(room.properties).forEach(([cellId, prop]) => {
+    if (prop.ownerId === playerId) {
+      const cell = BOARD[parseInt(cellId)];
+      if (prop.mortgaged) {
+        // Buyer must pay unmortgage cost
+        value += Math.floor(cell.price / 2 * 1.1);
+      } else {
+        value += Math.floor(cell.price / 2);
+      }
+      if (prop.houses > 0) {
+        value += prop.houses * Math.floor(cell.houseCost / 2);
+      }
+    }
+  });
+  return value;
+}
+```
+
+**Проблема:** Для заложенного имущества рассчитывается стоимость выкупа (половина + 10%), но это не совсем верно. Согласно классическим правилам:
+- Заложить: получить половину цены.
+- Выкупить: заплатить половину + 10%.
+
+Если имущество уже заложено, новый владелец может либо держать его в залоге (получает 50% оценки), либо выкупить (платит 55%). Текущая функция предполагает, что он выкупит сразу. Это может быть преувеличением.
+
+**Правильный подход:**
+```javascript
+if (prop.mortgaged) {
+  // Mortgage value remains: the buyer buys the right to own (can unmortgage later)
+  value += Math.floor(cell.price / 2);
+}
+```
+
+Но это зависит от игровых правил. Если говорить о переводе при выходе из договора, логично предположить, что новый владелец получает активы в полном состоянии, т.е. должен платить за выкуп из залога.
+
+**Статус:** Требует уточнения правил.
+
+---
+
+### 1.15 **BUG-15: Гонка при одновременном завершении аукциона**
+
+**Файл:** `api/game.js`, маршруты `auction_bid` и `auction_check`
+
+**Строка:** ~1161–1190
+
+**Описание:** Если два клиента одновременно отправляют ставку и поллят статус аукциона, может возникнуть race condition:
+1. Клиент A проверяет `if (elapsed >= room.auction.timerDuration)` — ложь, продолжает.
+2. Клиент B в то же время завершает аукцион и устанавливает `room.auction = null`.
+3. Клиент A пытается обновить `room.auction.currentBidderId` — crash (потому что null).
+
+**Решение:** Использовать мьютексы или CAS операции Redis (если перейти на Redis). Временное решение:
+
+```javascript
+case 'auction_bid': {
+  // ...
+  if (!room.auction) return res.status(400).json({ error: 'Auction not active' });
+  const expired = checkAuctionExpiry(room);
+  if (expired) return res.status(400).json({ error: 'Auction already expired' });
+  // ... остаток логики
+}
+```
+
+**Статус:** **КРИТИЧНЫЙ** для многопользовательской игры. Требует рефакторинга.
+
+---
+
+### 1.16 **BUG-16: Банкротный аукцион не завершается, если очередь пуста**
+
+**Файл:** `api/game.js`, маршрут `bankrupt`, функция `startNextBankruptAuction()`
+
+**Строка:** ~430
+
+**Описание:**
+```javascript
+function startNextBankruptAuction(room) {
+  if (!room.bankruptAuctionQueue || room.bankruptAuctionQueue.length === 0) {
+    room.bankruptAuctionQueue = null;
+    room.turnPhase = 'endturn';
+    return;
   }
   // ...
 }
 ```
 
-**[BUG-11] `usejailcard` — после использования карты turnPhase не устанавливается в 'roll'**
-- **Файл:** `api/game.js`, case `usejailcard`
-- **Аналогично BUG-10:** После `inJail = false`, `turnPhase` не меняется. Он остаётся `'roll'` (потому что карту используют до броска). Подождите — `room.turnPhase` проверяется в `payjail`: `if (room.turnPhase !== 'roll')`. Значит `usejailcard` вызывается на фазе `'roll'`, и после неё `turnPhase` остаётся `'roll'`. Ок, это корректно для `usejailcard`. Но для `payjail` — нет, потому что там нет проверки: серверная проверка `if (room.turnPhase !== 'roll')` есть, значит `payjail` вызывается на фазе `'roll'`, и после оплаты `turnPhase` остаётся `'roll'`. **Ок, нет бага для usejailcard/payjail** — turnPhase остаётся 'roll'.
+**Проблема:** Если все имущество банкрота было продано на аукционах, очередь опустеет, и `turnPhase` станет `'endturn'`. Однако не проверяется, должна ли игра закончиться (если остался только один игрок). Это может привести к тому, что игра продолжится с мёртвым игроком.
 
-Но подождите, в case `payjail`:
+**Решение:** После завершения очереди проверить условие победы:
+
 ```javascript
-if (currentPlayer.balance < 0) {
-  room.turnPhase = 'manage';
-}
-```
-Если баланс >= 0, `turnPhase` остаётся `'roll'` (не менялся). **Это корректно.** Снимаю BUG-10.
-
-**[BUG-12] Аренда за utility: `diceSum` при перемещении картой**
-- **Файл:** `api/game.js`, `checkPostMove` + `processCardEffect`
-- **Проблема:** Когда карта перемещает игрока на utility, `checkPostMove` вызывается с оригинальным `diceSum`. По правилам Монополии, при перемещении на utility по карте Шанс, игрок должен бросить кубики заново для расчёта аренды (или платить 10× бросок). В текущей реализации используется `diceSum` из последнего реального броска. Это несоответствие правилам, но допустимое упрощение. Стоит документировать.
-
-### 1.2 СРЕДНИЕ
-
-**[BUG-13] Залог улицы с домами на соседних участках группы**
-- **Файл:** `api/game.js`, case `mortgage`
-- **Проблема:** Проверяется только `prop.houses > 0`, но не проверяется, есть ли дома на **других** улицах той же цветовой группы. По правилам Монополии, нельзя заложить улицу, если в этой группе есть дома. Нужно сначала продать все дома в группе.
-- **Фикс:**
-```javascript
-const cell = BOARD[cellId];
-if (cell.color) {
-  const group = COLOR_GROUPS[cell.color];
-  const hasHousesInGroup = group.some(cid => (room.properties[cid]?.houses || 0) > 0);
-  if (hasHousesInGroup) return res.status(400).json({ error: 'Sell all houses in group first' });
+function startNextBankruptAuction(room) {
+  if (!room.bankruptAuctionQueue || room.bankruptAuctionQueue.length === 0) {
+    room.bankruptAuctionQueue = null;
+    const active = getActivePlayers(room);
+    if (active.length <= 1) {
+      room.state = 'finished';
+      room.winner = active[0]?.id;
+      room.turnPhase = 'finished';
+    } else {
+      room.turnPhase = 'endturn';
+    }
+    return;
+  }
+  // ...
 }
 ```
 
-**[BUG-14] `canPlayerRecover` на клиенте неточен**
-- **Файл:** `public/index.html`, функция `canPlayerRecover`
-- **Проблема:** Используется hardcoded `+= prop.houses * 25` вместо реального расчёта (houseCost / 2). Данные `BOARD_DATA` на клиенте не содержат `price` и `houseCost`. Также `BOARD_DATA[cellId]?.price` undefined — в клиентском `BOARD_DATA` нет поля `price`.
-- **Последствия:** Клиент может неверно определить, нужно ли показывать кнопку "Банкротство", что приведёт к зависанию хода.
-
-**[BUG-15] Двойной проход через Старт при обычном ходе**
-- **Файл:** `api/game.js`, case `roll`
-- **Проблема:** В ветке doubles:
-```javascript
-const oldPos = currentPlayer.position;
-currentPlayer.position = (currentPlayer.position + diceSum) % 40;
-if (currentPlayer.position < oldPos) currentPlayer.balance += 200;
-```
-А потом `checkPostMove` может вызвать `processCardEffect` с `card.to < player.position` — и добавить ещё 200$. Пример: игрок на позиции 38, бросает 5, попадает на 3 (прошёл Старт, +200$). Позиция 3 — property "Нагатинская", свободная. Покупает. Ок.
-
-Но если позиция 3 — "Казна" (позиция 2 — Казна, позиция 3 — property). Если попадает на позицию 7 (Шанс) и карта "Отправляйтесь на Старт" → `card.to = 0`, `0 < 7` → true → +200$. Итого 400$ за один ход? Это корректно по правилам Монополии — прошёл Старт при движении + прошёл Старт по карте.
-
-**Нет бага**, это правильное поведение.
-
-**[BUG-16] Аукцион при банкротстве (method === 'auction') — не реализован**
-- **Файл:** `api/game.js`, case `bankrupt`, method `auction`
-- **Проблема:** Комментарий говорит "simplified: return to bank for now" — аукцион не реализован, имущество просто удаляется. Это противоречит правилам.
-- **Правила:** «Выставить на аукцион — всё имущество поочередно или единым лотом уходит с молотка по правилам обычного аукциона.»
-
-**[BUG-17] Передача имущества при банкротстве — нет оплаты**
-- **Файл:** `api/game.js`, case `bankrupt`, method `transfer`
-- **Проблема:** Имущество передаётся бесплатно. По правилам: «получатель обязан выкупить их по цене, предложенной системой». Нет никакой оплаты.
-- **Последствия:** Сговор — игрок может намеренно обанкротиться и бесплатно передать всё союзнику.
-
-**[BUG-18] `nextTurn` при банкротстве текущего игрока — двойной вызов**
-- **Файл:** `api/game.js`, case `bankrupt`
-```javascript
-if (getActivePlayer(room).id === playerId) {
-  nextTurn(room);
-}
-// ...
-room.turnPhase = room.state === 'finished' ? 'finished' : (getActivePlayer(room).id === playerId ? 'roll' : room.turnPhase);
-```
-- **Проблема:** После `nextTurn(room)`, `getActivePlayer(room)` возвращает НОВОГО игрока, а `playerId` — банкрот. Условие `getActivePlayer(room).id === playerId` после `nextTurn` будет false (банкрот уже не active). Поэтому `room.turnPhase` не меняется на `'roll'`, а остаётся каким был (возможно `'manage'`). Новый игрок не сможет начать ход.
-- **Фикс:**
-```javascript
-if (getActivePlayer(room).id === playerId) {
-  nextTurn(room);
-}
-room.turnPhase = room.state === 'finished' ? 'finished' : 'roll';
-```
-
-**[BUG-19] Карта "В тюрьму" из Казны/Шанс — `checkPostMove` не вызывается для новой позиции**
-- **Файл:** `api/game.js`, `processCardEffect`
-- **Проблема:** При `card.type === 'jail'`, позиция ставится 10, `inJail = true`. В `checkPostMove` далее проверяется `if (player.inJail) { room.turnPhase = 'endturn'; return; }` — **нет такой проверки!** После `processCardEffect`, код продолжается:
-```javascript
-if (player.inJail) { room.turnPhase = 'endturn'; return; }
-```
-Ок, эта проверка есть в `checkPostMove` в ветках `chance`/`chest`. Работает.
-
-**[BUG-20] При `method === 'transfer'` в банкротстве дома не сбрасываются**
-- **Файл:** `api/game.js`, case `bankrupt`
-- **Проблема:** При `method === 'bank'` и `method === 'auction'` дома удаляются (property удаляется целиком). При `method === 'transfer'` свойства переходят целиком **с домами**. Это по правилам корректно (получатель получает улицы с застройками), но нужно убедиться, что получатель имеет полную группу для сохранения домов. В текущем коде это не проверяется.
+**Статус:** **ВЫСОКИЙ приоритет.**
 
 ---
 
-## 2. ПРОБЛЕМЫ АРХИТЕКТУРЫ И НАДЁЖНОСТИ
+### 1.17 **BUG-17: Трансфер имущества при банкротстве не проверяет платёжеспособность покупателя**
 
-**[ARCH-01] In-memory storage несовместим с Vercel** (КРИТИЧЕСКИЙ)
-- Vercel Serverless Functions — stateless. Каждый cold start = пустой `Map()`. Даже в одном инстансе данные теряются при простое ~15 минут.
-- **Решение:** Мигрировать на Upstash Redis (`@upstash/redis`). `@vercel/kv` deprecated с декабря 2024.
+**Файл:** `api/game.js`, маршрут `bankrupt`, метод `'transfer'`
 
-**[ARCH-02] Race conditions при параллельных запросах**
-- Два игрока одновременно делают ставку на аукционе → оба читают одинаковый `currentBid` → оба проходят проверку → последний записывает свою ставку, перезатирая первую (lost update).
-- **Решение:** При Redis — использовать `WATCH`/`MULTI` или Lua-скрипты для атомарных операций. Или оптимистическая блокировка через version counter.
+**Строка:** ~1299
 
-**[ARCH-03] Нет очистки старых комнат**
-- Комнаты никогда не удаляются из хранилища. При переходе на Redis — нужен TTL (например, 24 часа).
-
-**[ARCH-04] Polling каждые 2.5 секунды — неэффективно**
-- 6 игроков × 2.5 сек = 144 запроса/мин. Каждый запрос возвращает полное состояние комнаты (десятки KB).
-- **Решение:** WebSocket (через Ably/Pusher/Liveblocks), или Server-Sent Events, или хотя бы long polling с ETag/version comparison.
-
-**[ARCH-05] Отсутствие версионирования состояния**
-- Клиент перезаписывает `currentRoom` при каждом polling, даже если ничего не изменилось. При одновременном действии и polling — возможно мерцание UI (действие обновило UI, потом polling вернул старое состояние до того как сервер обработал действие).
-
-**[ARCH-06] `auctionInterval` и `pollInterval` не очищаются при выходе/ошибке**
-- **Файл:** `public/index.html`
-- При навигации между экранами интервалы не останавливаются. `pollInterval` работает даже на экране меню. `auctionInterval` не очищается при закрытии modal или при переподключении.
-
-**[ARCH-07] Нет reconnection logic**
-- Если пользователь перезагрузит страницу или переоткроет mini app, он окажется на экране меню, хотя комната всё ещё активна. Нет механизма "вернуться в игру".
-
----
-
-## 3. УЯЗВИМОСТИ БЕЗОПАСНОСТИ
-
-**[SEC-01] Нет валидации Telegram initData** (КРИТИЧЕСКИЙ)
-- **Файл:** `api/game.js`
-- `playerId` приходит в body запроса и никак не верифицируется. Любой может подделать запрос с чужим `playerId` и выполнить действия от его имени (бросить кубик, купить, объявить банкротство).
-- **Решение:** Передавать `Telegram.WebApp.initData` в header, валидировать HMAC на сервере через bot token.
-- **Пример:**
+**Описание:**
 ```javascript
-const crypto = require('crypto');
-function validateInitData(initData, botToken) {
-  const params = new URLSearchParams(initData);
-  const hash = params.get('hash');
-  params.delete('hash');
-  const sorted = [...params.entries()].sort().map(([k,v]) => `${k}=${v}`).join('\n');
-  const secret = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
-  const computed = crypto.createHmac('sha256', secret).update(sorted).digest('hex');
-  return computed === hash;
+} else if (method === 'transfer' && targetPlayerId) {
+  // BUG-17 fix: Target must pay residual value
+  const target = getPlayerById(room, targetPlayerId);
+  if (!target || target.bankrupt) return res.status(400).json({ error: 'Invalid target' });
+
+  const residualValue = calculateResidualValue(room, playerId);
+  if (target.balance < residualValue) {
+    return res.status(400).json({ error: `Target cannot afford transfer cost (${residualValue}$)` });
+  }
+  // ...
 }
 ```
 
-**[SEC-02] XSS через имена игроков**
-- **Файл:** `public/index.html`, `renderGame()`, `renderLobby()`, `renderNotifications()`
-- Имена игроков вставляются через `innerHTML` без экранирования:
+**Проблема:** Проверка уже добавлена. Однако, если целевой игрок получает имущество с домами, может возникнуть ситуация, когда он не сможет платить налоги или аренду из-за добавления имущества. Это не баг кода, а фича игры, но стоит отметить.
+
+**Статус:** Исправлено.
+
+---
+
+### 1.18 **BUG-18: Текущий игрок может быть банкротом при завершении его хода**
+
+**Файл:** `api/game.js`, маршрут `bankrupt`, конец функции
+
+**Строка:** ~1325
+
+**Описание:**
 ```javascript
-`<span>${p.name.substring(0, 8)}</span>`
-```
-- Если Telegram username содержит `<script>` или HTML (маловероятно, но возможно через подделку запроса без валидации initData), XSS атака.
-- **Фикс:** Использовать `textContent` или sanitize:
-```javascript
-function esc(str) { return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+} else {
+  // BUG-18 fix: If bankrupt player was current, advance turn properly
+  if (getActivePlayer(room).id === playerId) {
+    nextTurn(room);
+  } else {
+    // If it wasn't the bankrupt's turn and we're not in finished state
+    if (room.turnPhase === 'manage') {
+      room.turnPhase = 'endturn';
+      room.debtInfo = null;
+    }
+  }
+}
 ```
 
-**[SEC-03] Манипуляция аукционом — bid validation**
-- **Файл:** `api/game.js`, case `auction_bid`
-- Проверяется `amount > bidder.balance`, но `amount` может быть нецелым числом (например, 0.001) — и пройти проверку `amount > currentBid` при `currentBid = 0`. Нужно `parseInt` и проверка `amount >= 1`.
-- **Фикс:**
+**Проблема:** Код проверяет, был ли банкрот текущим игроком, и переводит ход, если да. Однако в функции `nextTurn()` используется `getActivePlayers()`, который уже фильтрует банкротов. Поэтому если был выбран метод `'bank'` или `'transfer'` (не `'auction'`), игрок помечается `bankrupt` до вызова `nextTurn()`, и ход переводится корректно.
+
+Но если метод `'auction'`, очередь может быть пуста, и в функции `startNextBankruptAuction()` выставляется `turnPhase = 'endturn'`, но не выполняется `nextTurn()`. Это может привести к тому, что ход останется у банкрота или зависнет.
+
+**Статус:** Требует проверки логики `nextTurn()` и `startNextBankruptAuction()` совместно.
+
+---
+
+## 2. ПРОБЛЕМЫ БЕЗОПАСНОСТИ
+
+### 2.1 **SEC-01: XSS-инъекции в имена игроков и уведомления**
+
+**Файл:** `public/index.html`
+
+**Строка:** Множественные места в `renderLobby()`, `renderGame()`, `renderNotifications()` и т.д.
+
+**Описание:** Хотя на фронтенде есть функция `escapeHtml()`, она используется не везде:
+
+```javascript
+// ✓ Используется:
+`<li><span class="player-dot" style="background:${escapeHtml(p.color)}"></span>${escapeHtml(p.name)}...`
+
+// ✗ НЕ используется:
+hud.innerHTML = currentRoom.players.map(p => `
+  <div class="hud-player ${p.id === currentPlayerId ? 'active' : ''} ...">
+    <span>${escapeHtml(p.name.substring(0, 8))}</span> // ✓ Используется
+    ...
+  </div>
+`).join('');
+```
+
+**Проблема:** На самом деле, в большинстве мест используется `escapeHtml()`, но есть опасные места:
+
+```javascript
+// ❌ ОПАСНО:
+document.getElementById('winner-text').textContent = winner ? 
+  `${escapeHtml(winner.name)} побеждает!` : 'Ничья!';  // ✓ escapeHtml используется
+
+// Но в некоторых местах:
+const select = document.getElementById('trade-target');
+select.innerHTML = currentRoom.players
+  .filter(p => p.id !== userId && !p.bankrupt)
+  .map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}</option>`).join('');
+  // ✓ escapeHtml здесь
+```
+
+Проверим `showDealsModal()`:
+```javascript
+const memberNames = allMembers.map(id => getPlayerById(room, id)?.name).join(', ');
+addNotification(room, `Договор о монополии (${color}): ${memberNames}`);
+// ❌ memberNames НЕ экранирован!
+```
+
+На сервере уведомления не экранируются, и на клиенте они отображаются через `.textContent` (безопасно для текста) или `.innerHTML` (опасно). Проверим:
+
+```javascript
+const notifs = currentRoom.notifications || [];
+el.innerHTML = notifs.slice(-10).map(n => `<div class="notif-item">${escapeHtml(n.text)}</div>`).join('');
+```
+
+Здесь используется `escapeHtml()`, поэтому безопасно.
+
+**Вердикт:** На фронтенде XSS хорошо защищена. Но на сервере нужно убедиться, что имена не содержат HTML.
+
+**Статус:** **НИЗКИЙ приоритет**, но требует проверки серверной валидации.
+
+---
+
+### 2.2 **SEC-02: CSRF-защита отсутствует**
+
+**Файл:** `api/game.js`
+
+**Строка:** Все POST-маршруты
+
+**Описание:** API не использует CSRF-токены. Однако, поскольку это Telegram Mini App, запросы идут с заголовком `X-Telegram-Init-Data`, который подписан. Если `initData` валидна, запрос от легального клиента.
+
+**Проблема:** Если злоумышленник получит `initData` (например, через XSS), он сможет выдать себя за этого игрока. Но `initData` содержит timestamp (`auth_date`) и валидна только 1 час, поэтому это частичная защита.
+
+**Рекомендация:** CORS хорошо настроен (только Telegram), но для дополнительной защиты можно добавить CSRF-токены в сессию.
+
+**Статус:** **СРЕДНИЙ приоритет**. Текущая защита достаточна, но можно улучшить.
+
+---
+
+### 2.3 **SEC-03: Валидация ставок на аукционе недостаточна**
+
+**Файл:** `api/game.js`, маршрут `auction_bid`
+
+**Строка:** ~1161
+
+**Описание:**
 ```javascript
 const amount = Math.floor(Number(body.amount));
-if (!Number.isFinite(amount) || amount < 1) return res.status(400).json({ error: 'Invalid bid' });
+if (!Number.isFinite(amount) || amount < 1) {
+  return res.status(400).json({ error: 'Invalid bid amount' });
+}
 ```
 
-**[SEC-04] Нет rate limiting**
-- API открыт для flood-атак. Один пользователь может отправлять тысячи запросов в секунду.
-
-**[SEC-05] Состояние комнаты передаётся полностью всем игрокам**
-- Все видят `notifications`, `trades` (включая чужие pending trades), полный `properties` с чужими данными. Это by design для Монополии (информация открыта), но `trades` между другими игроками не должны быть видны до завершения.
-
----
-
-## 4. ПРОБЛЕМЫ UI/UX И ФРОНТЕНДА
-
-**[UI-01] Доска не адаптивна на маленьких экранах**
-- Canvas фиксирован 760×760, масштабируется через CSS `width: 100%`. На телефонах с шириной 320px текст на клетках будет нечитаемым (9px / масштаб ≈ 4px). 
-- **Решение:** Рисовать на canvas с учётом `devicePixelRatio` и увеличить размер текста; или сделать интерактивное поле с зумом.
-
-**[UI-02] Нет индикации чей сейчас ход**
-- Единственный индикатор — рамка вокруг HUD-блока. При 6 игроках на маленьком экране это легко пропустить. Нет заметного баннера "Ваш ход!" или вибрации.
-
-**[UI-03] Кнопка "Завершить ход" показывается даже когда нужен повторный бросок (дубль)**
-- Хотя сервер корректно установит `turnPhase = 'roll'` при `endturn` с дублями, UX странный: пользователь нажимает "Завершить ход", а ему говорят "бросайте снова". Лучше автоматически переходить к повторному броску.
-
-**[UI-04] Отсутствие индикатора загрузки при API-вызовах**
-- При нажатии кнопок нет loading state. Двойной клик → двойной API-вызов (двойная покупка, двойной бросок).
-- **Фикс:** Дизейблить кнопки после нажатия до получения ответа.
-
-**[UI-05] Модальные окна перекрывают важную информацию**
-- Во время аукциона модалка "Имущество" может закрыть аукционный UI, и игрок пропустит возможность сделать ставку.
-
-**[UI-06] Нет звуковых уведомлений**
-- Telegram Mini App поддерживает `HapticFeedback`. При важных событиях (ваш ход, аукцион, оплата аренды) стоит использовать `tg.HapticFeedback.impactOccurred()`.
-
-**[UI-07] Canvas не отображает цены клеток**
-- Игрок не может узнать цену клетки до попадания на неё. Нет "тапни по клетке для деталей".
-
-**[UI-08] Аукционный таймер может показывать отрицательные или неверные значения**
-- `auctionInterval` вызывает API раз в секунду, но round-trip может занять >1 сек. Таймер мерцает или "застывает".
-
----
-
-## 5. ПРОИЗВОДИТЕЛЬНОСТЬ
-
-**[PERF-01] Canvas перерисовывается полностью при каждом render**
-- `renderGame()` вызывается при каждом polling (каждые 2.5 сек) и каждом действии. `drawBoard()` перерисовывает все 40 клеток + все фигурки. На слабых телефонах — заметные лаги.
-- **Решение:** Кешировать статическую часть доски (фон + подписи) в offscreen canvas. Перерисовывать только ownership/houses/players при изменении.
-
-**[PERF-02] Полное состояние передаётся при каждом polling**
-- Состояние комнаты может быть 20–50 KB. При 6 игроках и polling 2.5 сек — до 120 KB/сек входящего трафика на клиента.
-- **Решение:** Diff-based updates или `lastUpdate` timestamp comparison (если не изменилось — пустой ответ).
-
-**[PERF-03] `setInterval` для аукциона создаёт лишний HTTP трафик**
-- Каждую секунду — GET запрос `auction_check`. При 5 игроках одновременно: 5 запросов/сек к серверу только для таймера.
-
----
-
-## 6. РЕФАКТОРИНГ И УЛУЧШЕНИЯ
-
-**[REF-01] Монолитный `api/game.js` — 500+ строк switch/case**
-- Разделить на модули: `routes/`, `logic/game.js`, `logic/auction.js`, `logic/trade.js`, `storage/redis.js`.
-
-**[REF-02] Отсутствие типизации**
-- Добавить JSDoc types или перейти на TypeScript для отлова ошибок при компиляции.
-
-**[REF-03] Магические числа разбросаны по коду**
-- `200` (проход Старт), `50` (штраф тюрьмы), `1.1` (процент по залогу) — вынести в constants.
-
-**[REF-04] Нет unit-тестов**
-- Игровая логика (расчёт аренды, дубли, банкротство) — идеальна для unit-тестов. Вынести в pure functions.
-
-**[REF-05] Клиентский код в одном HTML файле**
-- 800+ строк JS inline. Разделить на модули (ES modules или бандлер).
-
----
-
-## КОНКРЕТНЫЕ ИСПРАВЛЕНИЯ (код)
-
-### Исправление 1: Миграция на Upstash Redis
+**Проблема:** Проверка выглядит нормально, но нет проверки на верхний предел. Игрок может поставить больше, чем у него есть денег:
 
 ```javascript
-// storage/redis.js
-const { Redis } = require('@upstash/redis');
+if (amount > bidder.balance) return res.status(400).json({ error: 'Not enough money' });
+```
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+Это есть, поэтому защита достаточна.
+
+**Вердикт:** Валидация нормальна.
+
+**Статус:** Низкий приоритет.
+
+---
+
+### 2.4 **SEC-04: Проверка прав доступа при модификации комнаты**
+
+**Файл:** `api/game.js`, маршруты `start`, `settings_update`
+
+**Строка:** ~752, ~1357
+
+**Описание:**
+```javascript
+case 'start': {
+  const { roomId } = body;
+  const room = await getRoom(roomId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  if (room.hostId !== playerId) return res.status(403).json({ error: 'Only host can start' });
+  // ...
+}
+
+case 'settings_update': {
+  const { roomId, settings } = body;
+  const room = await getRoom(roomId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  if (room.hostId !== playerId) return res.status(403).json({ error: 'Only host' });
+  // ...
+}
+```
+
+**Проблема:** Проверка корректна. Хост может изменять параметры и запускать игру.
+
+**Статус:** Низкий приоритет.
+
+---
+
+### 2.5 **SEC-05: Недостаточная валидация входных данных**
+
+**Файл:** `api/game.js`
+
+**Строка:** Все маршруты
+
+**Описание:**
+- `roomId`: Проверяется на существование, но нет проверки на формат (должен быть 6 символов).
+- `cellId`: Проверяется на тип (parseInt), но не на диапазон (0–39).
+- `playerId`: Берётся из `initData` или fallback-а, не валидируется на формат.
+- Суммы денег: Проверяются на финитность, но не на логику (например, отрицательные).
+
+**Рекомендация:** Добавить парсер/валидатор для всех входных данных.
+
+**Статус:** **СРЕДНИЙ приоритет**. Текущая защита работает, но можно улучшить.
+
+---
+
+### 2.6 **SEC-06: Отсутствие rate limiting**
+
+**Файл:** `api/game.js`
+
+**Описание:** Нет защиты от брутфорса или DDoS. Злоумышленник может:
+- Бросать много запросов на `auction_bid`, перегружая сервер.
+- Пытаться подбирать коды комнат (6 символов = 36^6 ≈ 2 млрд комбинаций, но многие уже заняты).
+
+**Решение:** Добавить rate limiting через middleware (например, `express-rate-limit` для Vercel).
+
+**Статус:** **ВЫСОКИЙ приоритет** для production.
+
+---
+
+## 3. ПРОБЛЕМЫ АРХИТЕКТУРЫ И НАДЁЖНОСТИ
+
+### 3.1 **ARCH-01: In-memory хранилище теряет данные при перезапуске функции**
+
+**Файл:** `storage/redis.js`
+
+**Строка:** ~1 (текущая заглушка отсутствует в коде, используется Upstash Redis)
+
+**Описание:** Проект планирует перейти на Upstash Redis, что хорошо. Текущий код уже использует Redis, поэтому этот баг не актуален.
+
+**Статус:** Не актуально.
+
+---
+
+### 3.2 **ARCH-02: Утечка памяти при долгих поллингах**
+
+**Файл:** `public/index.html`, функция `startPolling()`
+
+**Строка:** ~790
+
+**Описание:**
+```javascript
+function startPolling() {
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(async () => {
+    if (!roomId) return;
+    const lastUpdate = currentRoom ? currentRoom.lastUpdate : 0;
+    const result = await apiGet('state', { roomId, lastUpdate: String(lastUpdate) });
+    // ...
+  }, 2500);
+}
+```
+
+**Проблема:** При переходе между комнатами интервал может не очиститься полностью, если произойдёт ошибка. При закрытии приложения интервал остаётся в памяти.
+
+**Решение:**
+
+```javascript
+window.addEventListener('beforeunload', () => {
+  if (pollInterval) clearInterval(pollInterval);
+  if (auctionInterval) clearInterval(auctionInterval);
 });
 
-async function getRoom(roomId) {
-  const data = await redis.get(`room:${roomId}`);
-  return data || null;
+// Или при переходе на другой экран:
+if (currentRoom.state === 'finished') {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  // ...
 }
-
-async function setRoom(roomId, data) {
-  await redis.set(`room:${roomId}`, data, { ex: 86400 }); // TTL 24h
-}
-
-async function deleteRoom(roomId) {
-  await redis.del(`room:${roomId}`);
-}
-
-module.exports = { getRoom, setRoom, deleteRoom };
 ```
 
-### Исправление 2: Валидация Telegram initData
+Проверим код — это уже сделано в `resetGame()`:
 
 ```javascript
-// auth/telegram.js
-const crypto = require('crypto');
-
-function validateTelegramData(initData, botToken) {
-  if (!initData) return null;
-  
-  const params = new URLSearchParams(initData);
-  const hash = params.get('hash');
-  if (!hash) return null;
-  
-  params.delete('hash');
-  const dataCheckString = [...params.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, val]) => `${key}=${val}`)
-    .join('\n');
-
-  const secretKey = crypto
-    .createHmac('sha256', 'WebAppData')
-    .update(botToken)
-    .digest();
-  
-  const computedHash = crypto
-    .createHmac('sha256', secretKey)
-    .update(dataCheckString)
-    .digest('hex');
-
-  if (computedHash !== hash) return null;
-
-  // Check timestamp (allow 1 hour)
-  const authDate = parseInt(params.get('auth_date'));
-  if (Date.now() / 1000 - authDate > 3600) return null;
-
-  return JSON.parse(params.get('user') || 'null');
+function resetGame() {
+  // ...
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+  if (auctionInterval) { clearInterval(auctionInterval); auctionInterval = null; }
+  // ...
 }
-
-module.exports = { validateTelegramData };
 ```
 
-### Исправление 3: Защита от двойных кликов (клиент)
+**Статус:** Исправлено частично, но надо добавить `beforeunload` обработчик.
 
+---
+
+### 3.3 **ARCH-03: Race condition при одновременном поллинге и действии**
+
+**Файл:** `public/index.html`
+
+**Описание:** Если игрок выполняет действие (roll) в то время, как идёт поллинг (state), может возникнуть конфликт:
+1. Поллинг получает старое состояние.
+2. Запрос действия изменяет состояние на сервере.
+3. Поллинг обновляет UI неправильным состоянием.
+
+Это автоматически разрешается `lastUpdate` версионированием, но может быть лучше.
+
+**Решение:** Использовать `actionLock` для блокировки поллинга во время действия.
+
+**Проверим код:**
 ```javascript
-let actionLock = false;
-
 async function safeApiCall(endpoint, body) {
   if (actionLock) return null;
   actionLock = true;
@@ -429,84 +848,508 @@ async function safeApiCall(endpoint, body) {
     actionLock = false;
   }
 }
+```
 
-// Заменить все вызовы в обработчиках кнопок:
-async function doRoll() {
-  const result = await safeApiCall('roll', { roomId, playerId: userId });
-  if (result?.success) { currentRoom = result.room; renderGame(); }
+`actionLock` используется для блокировки кнопок, но поллинг не блокируется. Можно добавить:
+
+```javascript
+pollInterval = setInterval(async () => {
+  if (!roomId || actionLock) return; // ← Пропустить, если идёт действие
+  // ...
+}, 2500);
+```
+
+**Статус:** **СРЕДНИЙ приоритет**. Текущая система работает через версионирование, но можно улучшить.
+
+---
+
+### 3.4 **ARCH-04: Отсутствие обработки сетевых ошибок**
+
+**Файл:** `public/index.html`, функции `apiCall()`, `apiGet()`
+
+**Описание:**
+```javascript
+async function apiCall(endpoint, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (initData) {
+    headers['X-Telegram-Init-Data'] = initData;
+  }
+  const res = await fetch(`${API}/${endpoint}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ ...body, playerId: userId, playerName: userName }),
+  });
+  return await res.json();
 }
 ```
 
-### Исправление 4: XSS-экранирование
+**Проблема:** Нет обработки ошибок fetch (например, сетевые таймауты, 500 ошибки). Если сервер недоступен, клиент повиснет.
+
+**Решение:**
 
 ```javascript
-function escapeHtml(str) {
-  if (!str) return '';
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-// В renderGame, renderLobby и т.д.:
-`<span>${escapeHtml(p.name.substring(0, 8))}</span>`
-```
-
-### Исправление 5: Фикс залога с домами в группе
-
-```javascript
-case 'mortgage': {
-  // ... existing checks ...
-  
-  const cell = BOARD[cellId];
-  if (cell.type === 'property' && cell.color) {
-    const group = COLOR_GROUPS[cell.color];
-    const hasHousesInGroup = group.some(cid => {
-      const p = room.properties[cid];
-      return p && p.ownerId === playerId && p.houses > 0;
+async function apiCall(endpoint, body) {
+  try {
+    const res = await fetch(`${API}/${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...body, playerId: userId, playerName: userName }),
+      timeout: 5000, // Таймаут 5 сек
     });
-    if (hasHousesInGroup) {
-      return res.status(400).json({ error: 'Sell all houses in color group first' });
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.error(`API error: ${err.message}`);
+    return { success: false, error: 'Network error. Try again.' };
   }
-  
-  // ... rest of mortgage logic ...
 }
 ```
 
-### Исправление 6: Фикс bankrupt turnPhase
+**Статус:** **ВЫСОКИЙ приоритет**.
+
+---
+
+### 3.5 **ARCH-05: Отсутствие обработки случаев, когда всё имущество продано на аукционе**
+
+**Файл:** `api/game.js`, функция `startNextBankruptAuction()`
+
+**Строка:** ~430
+
+**Описание:** Уже обсуждалось в BUG-16. Требует явной проверки условия победы.
+
+**Статус:** **ВЫСОКИЙ приоритет**.
+
+---
+
+### 3.6 **ARCH-06: Отсутствие логирования и мониторинга**
+
+**Файл:** Все
+
+**Описание:** Нет логирования API запросов, ошибок, дебаг-информации. При production-использовании это критично.
+
+**Рекомендация:** Добавить логирование:
 
 ```javascript
-case 'bankrupt': {
-  // ... existing logic ...
-  
-  player.bankrupt = true;
-  player.balance = 0;
-  
-  // ... cleanup deals/agreements ...
-  
-  const active = getActivePlayers(room);
-  if (active.length <= 1) {
-    room.state = 'finished';
-    room.winner = active[0]?.id;
-    room.turnPhase = 'finished';
-  } else {
-    // Always advance turn if bankrupt was current player
-    const wasCurrentPlayer = room.currentPlayerIndex < room.players.length && 
-                             room.players[room.currentPlayerIndex].id === playerId;
-    if (wasCurrentPlayer) {
-      nextTurn(room); // This sets turnPhase = 'roll' internally
+console.log(`[${new Date().toISOString()}] POST /api/${endpoint} from ${playerId}`);
+console.error(`[ERROR] ${endpoint}: ${err.message}`);
+```
+
+**Статус:** **СРЕДНИЙ приоритет** для production, но для MVP OK.
+
+---
+
+### 3.7 **ARCH-07: Отсутствие механизма восстановления после сбоя**
+
+**Файл:** `public/index.html`, функция `loadSession()`
+
+**Описание:**
+```javascript
+function loadSession() {
+  try {
+    return localStorage.getItem('monopoly_roomId') || null;
+  } catch (e) { return null; }
+}
+```
+
+Механизм восстановления есть (через localStorage), но он не идеален:
+- Если игрок закрыл приложение, он может вернуться, но его ход пропущен.
+- Если сервер потерял данные, восстановление не сработает.
+
+**Рекомендация:** Добавить механизм пасса (ход переводится автоматически, если игрок не активен).
+
+**Статус:** **НИЗКИЙ приоритет** для MVP, но важно для лонгплей.
+
+---
+
+## 4. ПРОБЛЕМЫ ФРОНТЕНДА И UI/UX
+
+### 4.1 **UI-01: Отсутствие индикатора текущей фазы игры**
+
+**Файл:** `public/index.html`
+
+**Описание:** Нет явного отображения текущей фазы (`turnPhase`). Игрок не знает, почему он не может выполнить действие.
+
+**Решение:** Добавить подсказку:
+
+```javascript
+function renderActions() {
+  const bar = document.getElementById('action-bar');
+  const isMyTurn = currentRoom.players[currentRoom.currentPlayerIndex]?.id === userId;
+  const me = currentRoom.players.find(p => p.id === userId);
+  const phase = currentRoom.turnPhase;
+
+  let buttons = '';
+  let status = `Фаза: ${phase}`;
+
+  if (isMyTurn && !me.bankrupt) {
+    const disabled = actionLock ? 'disabled' : '';
+    if (phase === 'roll') {
+      buttons += `<button class="btn btn-primary" onclick="doRoll()" ${disabled}>Бросить кубик</button>`;
+      status = `Ваш ход. Бросьте кубик.`;
     }
+    // ... остальное
   }
-  
+
+  bar.innerHTML = buttons || `<span style="color:var(--text-dim);font-size:0.85em;">${status}</span>`;
+}
+```
+
+**Статус:** **СРЕДНИЙ приоритет** для UX.
+
+---
+
+### 4.2 **UI-02: Невидимый долг на экране игры**
+
+**Файл:** `public/index.html`
+
+**Описание:** Когда включается фаза `'manage'` (долг), нет явного отображения суммы долга. Игрок видит только, что не может рулить.
+
+**Решение:** Добавить панель долга:
+
+```javascript
+// В renderGame():
+if (currentRoom.turnPhase === 'manage' && currentRoom.debtInfo) {
+  const debt = document.getElementById('debt-panel');
+  if (!debt) {
+    const panel = document.createElement('div');
+    panel.id = 'debt-panel';
+    panel.innerHTML = `
+      <div class="debt-box">
+        <h3>⚠️ Долг: ${currentRoom.debtInfo.amount}$</h3>
+        <p>Требуется погасить долг.</p>
+      </div>
+    `;
+    document.getElementById('game-container').insertBefore(panel, document.getElementById('board-wrapper'));
+  }
+} else {
+  const debt = document.getElementById('debt-panel');
+  if (debt) debt.remove();
+}
+```
+
+**Статус:** **СРЕДНИЙ приоритет**.
+
+---
+
+### 4.3 **UI-03: Канвас доска не адаптивна для мобильных устройств**
+
+**Файл:** `public/index.html`, CSS и Canvas
+
+**Строка:** ~80, ~560
+
+**Описание:**
+```javascript
+const S = 760; // Фиксированный размер
+```
+
+На мобильных устройствах (особенно узких) доска может быть слишком большой.
+
+**Решение:**
+
+```javascript
+const S = Math.min(window.innerWidth - 32, 760); // Максимум 760, минимум ширина - отступы
+```
+
+И установить canvas responsive:
+
+```html
+<canvas id="board-canvas" class="board-canvas" width="760" height="760"></canvas>
+```
+
+```css
+.board-canvas {
+  width: 100%;
+  height: 100%;
+  max-width: 380px;
+  aspect-ratio: 1;
+}
+```
+
+Это уже сделано в CSS (`max-width: 380px`), но размер при отрисовке фиксирован. Нужно масштабировать в зависимости от окна.
+
+**Статус:** **СРЕДНИЙ приоритет**.
+
+---
+
+### 4.4 **UI-04: Таблица сделок слишком мала и неудобна**
+
+**Файл:** `public/index.html`, модальное окно `modal-trade`
+
+**Описание:** Интерфейс создания сделки имеет много чекбоксов и может быть запутанным. Особенно сложно на мобильном.
+
+**Решение:** Разбить на вкладки или использовать двухколоночный layout.
+
+**Статус:** **НИЗКИЙ приоритет**, но улучшит UX.
+
+---
+
+### 4.5 **UI-05: Отсутствие подтверждения перед критичными действиями**
+
+**Файл:** `public/index.html`
+
+**Описание:** Игрок может случайно объявить банкротство или выставить имущество на аукцион без подтверждения.
+
+**Решение:** Добавить `confirm()` перед критичными действиями:
+
+```javascript
+async function declareBankruptcy(method) {
+  if (!confirm('Вы уверены? Это необратимо!')) return;
   // ...
 }
 ```
 
-И исправить `nextTurn`:
+**Статус:** **СРЕДНИЙ приоритет**.
+
+---
+
+## 5. ПРОБЛЕМЫ ПРОИЗВОДИТЕЛЬНОСТИ
+
+### 5.1 **PERF-01: Перерисовка канваса на каждый рендер**
+
+**Файл:** `public/index.html`, функция `drawBoard()`
+
+**Строка:** ~870
+
+**Описание:**
 ```javascript
+function drawBoard() {
+  const canvas = document.getElementById('board-canvas');
+  const ctx = canvas.getContext('2d');
+  // ... полная перерисовка каждый раз
+}
+```
+
+**Проблема:** При каждом вызове `renderGame()` (каждые 2.5 секунды) полностью перерисовывается доска. Это неэффективно.
+
+**Решение:** Уже реализовано через offscreen canvas и кэширование:
+
+```javascript
+if (!boardCacheValid) {
+  drawStaticBoard();
+}
+ctx.drawImage(offscreenCanvas, 0, 0);
+// Затем отрисовать динамические элементы (фишки, дома)
+```
+
+**Статус:** Оптимизировано.
+
+---
+
+### 5.2 **PERF-02: Передача полного состояния комнаты при каждом поллинге**
+
+**Файл:** `api/game.js`, маршрут `state`
+
+**Строка:** ~702
+
+**Описание:**
+```javascript
+case 'state': {
+  const roomId = params.roomId;
+  const clientLastUpdate = parseInt(params.lastUpdate, 10) || 0;
+  const room = await getRoom(roomId);
+  // ...
+  if (clientLastUpdate && clientLastUpdate >= room.lastUpdate && !auctionCompleted) {
+    return res.json({ success: true, notModified: true });
+  }
+  return res.json({ success: true, room });
+}
+```
+
+**Проблема:** Если ничего не изменилось, отправляется `notModified: true`, но если изменилось, отправляется вся комната (со всеми уведомлениями, свойствами, и т.д.). Это может быть большой объём данных.
+
+**Решение:** Отправлять дельту (только изменения):
+
+```javascript
+if (clientLastUpdate && clientLastUpdate >= room.lastUpdate && !auctionCompleted) {
+  return res.json({ success: true, notModified: true });
+}
+// Отправить только изменённые поля
+const delta = {
+  players: room.players.map(p => ({ id: p.id, balance: p.balance, position: p.position, ... })),
+  properties: room.properties,
+  currentPlayerIndex: room.currentPlayerIndex,
+  turnPhase: room.turnPhase,
+  notifications: room.notifications.slice(-5), // Только последние
+  // ...
+};
+return res.json({ success: true, delta });
+```
+
+**Статус:** **СРЕДНИЙ приоритет** для масштабирования.
+
+---
+
+### 5.3 **PERF-03: Поллинг каждые 2.5 сек может быть избыточным**
+
+**Файл:** `public/index.html`, `startPolling()`
+
+**Строка:** ~820
+
+**Описание:**
+```javascript
+pollInterval = setInterval(async () => {
+  // ...
+}, 2500); // Каждые 2.5 сек
+```
+
+**Проблема:** Для игры с 6 игроками это означает 6 × 4 запроса в минуту = 24 запроса/мин. При наличии 100 комнат это 2400 запросов/мин.
+
+**Решение:** Использовать WebSockets вместо поллинга, или увеличить интервал до 5 сек. Для MVP 2.5 сек OK, но в production нужно оптимизировать.
+
+**Статус:** **НИЗКИЙ приоритет** для MVP, но важно для масштабирования.
+
+---
+
+## 6. ЛОГИЧЕСКИЕ ОШИБКИ И НЕСООТВЕТСТВИЯ ПРАВИЛАМ
+
+### 6.1 **GAME-01: Игрок может выйти из тюрьмы и не сделать ход**
+
+**Файл:** `api/game.js`, маршрут `roll()`
+
+**Строка:** ~600
+
+**Описание:**
+```javascript
+if (currentPlayer.inJail) {
+  if (isDoubles) {
+    currentPlayer.inJail = false;
+    currentPlayer.jailTurns = 0;
+    currentPlayer.doublesCount = 0; // Reset after jail exit
+    currentPlayer.position = (currentPlayer.position + diceSum) % 40;
+    // ...
+    checkPostMove(room, currentPlayer, diceSum);
+  } else {
+    currentPlayer.jailTurns++;
+    if (currentPlayer.jailTurns >= 3) {
+      currentPlayer.balance -= 50;
+      currentPlayer.inJail = false;
+      currentPlayer.jailTurns = 0;
+      currentPlayer.position = (currentPlayer.position + diceSum) % 40;
+      // ...
+      checkPostMove(room, currentPlayer, diceSum);
+    }
+  }
+}
+```
+
+**Проблема:** После выхода из тюрьмы через дубль должен быть дополнительный ход (нужно бросить ещё раз). Текущий код не это не обеспечивает, он просто продолжает дальше. (Это BUG-09, обсуждалось ранее.)
+
+**Статус:** **КРИТИЧНЫЙ БАГ**, уже указан выше.
+
+---
+
+### 6.2 **GAME-02: Игрок может построить на ещё не полностью оплаченной улице в договоре**
+
+**Файл:** `api/game.js`, функция `build()`
+
+**Строка:** ~1069
+
+**Описание:** Если договор о монополии только что создан, но один из игроков ещё не полностью владеет своей частью (например, она заложена), система позволит строить. Это нарушает правила.
+
+**Решение:** При создании договора проверить, что все улицы в полном владении (не заложены):
+
+```javascript
+case 'monopoly_create': {
+  // ...
+  const allMembers = members || [playerId];
+  const ownedByMembers = group.filter(cid => {
+    const p = room.properties[cid];
+    return p && allMembers.includes(p.ownerId) && !p.mortgaged; // ← Добавить !p.mortgaged
+  });
+  // ...
+}
+```
+
+**Статус:** **СРЕДНИЙ приоритет**.
+
+---
+
+### 6.3 **GAME-03: Отсутствует правило о равномерной застройке в договоре**
+
+**Файл:** `api/game.js`, функция `build()`
+
+**Строка:** ~1069
+
+**Описание:** При совместной монополии должны соблюдаться классические правила Монополии о равномерной застройке. Текущий код проверяет это, но не для всех участников договора.
+
+```javascript
+// Check even building rule
+const group = COLOR_GROUPS[cell.color];
+const minHouses = Math.min(...group.map(cid => (room.properties[cid]?.houses || 0)));
+if (prop.houses > minHouses) return res.status(400).json({ error: 'Must build evenly' });
+```
+
+**Проблема:** Это проверяет, что все улицы в группе имеют не более чем на 1 дом больше, чем минимум. Это правильно для классической монополии, но при совместной монополии может быть запутанным. Например:
+- Иван владеет улицей A с 2 домами.
+- Мария владеет улицей B с 1 домом.
+- Пётр владеет улицей C с 1 домом (партнёр Маши в договоре).
+- Теперь Пётр хочет построить на C. Минимум = 1, его улица = 1, поэтому может? Да.
+
+Логика кажется правильной, но может быть запутана при большом количестве участников. Рекомендуется добавить комментарии.
+
+**Статус:** **НИЗКИЙ приоритет**, логика верна, но требует уточнения.
+
+---
+
+### 6.4 **GAME-04: Отсутствует проверка, что договор может быть расторгнут только при согласии сторон**
+
+**Файл:** `api/game.js`, маршрут `monopoly_exit`
+
+**Строка:** ~1239
+
+**Описание:**
+```javascript
+case 'monopoly_exit': {
+  const { roomId, dealId, buyerId, price } = body;
+  const room = await getRoom(roomId);
+  // ...
+  const deal = room.monopolyDeals.find(d => d.id === dealId);
+  if (!deal) return res.status(404).json({ error: 'Deal not found' });
+  if (!deal.members.includes(playerId)) return res.status(403).json({ error: 'Not a member' });
+
+  const buyer = getPlayerById(room, buyerId);
+  const seller = getPlayerById(room, playerId);
+  if (!buyer || buyer.balance < price) return res.status(400).json({ error: 'Buyer cannot afford' });
+
+  const group = COLOR_GROUPS[deal.color];
+  group.forEach(cid => {
+    const prop = room.properties[cid];
+    if (prop && prop.ownerId === playerId) {
+      prop.ownerId = buyerId;
+    }
+  });
+
+  buyer.balance -= price;
+  seller.balance += price;
+
+  deal.members = deal.members.filter(m => m !== playerId);
+  if (deal.members.length < 2) {
+    room.monopolyDeals = room.monopolyDeals.filter(d => d.id !== dealId);
+  }
+  // ...
+}
+```
+
+**Проблема:** При выходе из договора требуется согласие другого участника (за счёт параметра `buyerId`), но нет явной проверки, что `buyerId` согласен. Система предполагает, что если запрос отправлен с этим ID, то согласие дано. Это может быть корректно для асинхронной согласованности, но хорошо бы иметь явное подтверждение.
+
+**Рекомендация:** Добавить механизм предложений с подтверждением, аналогично `trade_propose` и `trade_respond`.
+
+**Статус:** **СРЕДНИЙ приоритет**.
+
+---
+
+## 7. ПОТЕНЦИАЛЬНЫЕ КРАЕВЫЕ СЛУЧАИ
+
+### 7.1 **EDGE-01: Что происходит, если все игроки банкроты?**
+
+**Файл:** `api/game.js`, функция `getActivePlayers()`, `nextTurn()`
+
+**Описание:**
+```javascript
+function getActivePlayers(room) {
+  return room.players.filter(p => !p.bankrupt);
+}
+
 function nextTurn(room) {
   const activePlayers = getActivePlayers(room);
   if (activePlayers.length <= 1) {
@@ -515,50 +1358,619 @@ function nextTurn(room) {
     room.turnPhase = 'finished';
     return;
   }
-  let next = (room.currentPlayerIndex + 1) % room.players.length;
-  while (room.players[next].bankrupt) {
-    next = (next + 1) % room.players.length;
+  // ...
+}
+```
+
+**Проблема:** Если все игроки банкроты (активных игроков 0), игра завершается с `winner = undefined`. Это может вызвать проблемы на клиенте.
+
+**Решение:**
+
+```javascript
+if (activePlayers.length <= 1) {
+  room.state = 'finished';
+  room.winner = activePlayers[0]?.id || null;
+  if (activePlayers.length === 0) {
+    room.turnPhase = 'tie'; // или 'finished'
+    addNotification(room, 'Все игроки банкроты! Ничья!');
+  } else {
+    room.turnPhase = 'finished';
+    addNotification(room, `Победитель: ${activePlayers[0].name}`);
   }
-  room.currentPlayerIndex = next;
-  room.turnPhase = 'roll';
-  room.players[next].doublesCount = 0; // Reset for new turn
+}
+```
+
+**Статус:** **СРЕДНИЙ приоритет**.
+
+---
+
+### 7.2 **EDGE-02: Что происходит, если игрок кликает "Купить" и одновременно попадает на чужую улицу?**
+
+**Файл:** `api/game.js`, `public/index.html`
+
+**Описание:** Race condition при быстрых кликах.
+
+**Решение:** Уже используется `actionLock`:
+
+```javascript
+async function safeApiCall(endpoint, body) {
+  if (actionLock) return null;
+  actionLock = true;
+  try {
+    // ...
+  } finally {
+    actionLock = false;
+  }
+}
+```
+
+**Статус:** Решено.
+
+---
+
+### 7.3 **EDGE-03: Что происходит, если игрок выходит из приложения во время аукциона?**
+
+**Файл:** `public/index.html`, `api/game.js`
+
+**Описание:** Если игрок закрыет браузер, его ставка оставит его на аукционе, но он не сможет её изменить.
+
+**Решение:** При возврате игрока выполнить `checkAuctionExpiry()` и обновить состояние.
+
+**Статус:** Частично решено через поллинг, но можно улучшить.
+
+---
+
+### 7.4 **EDGE-04: Отрицательный баланс может стать положительным без действия игрока**
+
+**Файл:** `api/game.js`
+
+**Описание:** Если игрок в долге и получает аренду (например, от другого игрока), баланс может стать положительным, но `turnPhase` останется `'manage'`.
+
+**Решение:** После каждой операции проверять, погашен ли долг:
+
+```javascript
+if (player.balance >= 0) {
+  room.turnPhase = 'endturn';
+  room.debtInfo = null;
+}
+```
+
+**Статус:** Требует проверки в коде. Поищем...
+
+В `mortgage()`:
+```javascript
+if (room.turnPhase === 'manage' && player.balance >= 0) {
+  room.turnPhase = 'endturn';
+  room.debtInfo = null;
+}
+```
+
+Это есть. Но нужно проверить во всех местах, где может измениться баланс (например, при получении дивидендов или карточек).
+
+**Статус:** Частично решено.
+
+---
+
+## 8. РЕКОМЕНДАЦИИ ПО РЕФАКТОРИНГУ И УЛУЧШЕНИЯМ
+
+### 8.1 **REFACTOR-01: Разделить `api/game.js` на модули**
+
+**Текущее состояние:** Монолит 1300+ строк.
+
+**Предложенная структура:**
+
+```
+api/
+├── game.js (главная функция-обработчик)
+├── handlers/
+│   ├── room.js (join, create, start)
+│   ├── turn.js (roll, endturn)
+│   ├── property.js (buy, build, mortgage, etc.)
+│   ├── auction.js (auction_start, auction_bid, auction_check)
+│   ├── deals.js (monopoly_create, monopoly_exit)
+│   ├── agreements.js (agreement_create, agreement_revoke)
+│   ├── trades.js (trade_propose, trade_respond)
+│   └── bankruptcy.js (bankrupt)
+├── logic/
+│   ├── gameRules.js (calculateRent, checkPostMove, etc.)
+│   ├── validation.js (валидация входных данных)
+│   └── bankruptcy.js (логика банкротства)
+└── utils/
+    ├── board.js (BOARD, COLOR_GROUPS, вспомогательные функции)
+    └── notifications.js (addNotification, и т.д.)
+```
+
+**Пример рефакторинга:**
+
+```javascript
+// api/handlers/property.js
+async function handleBuild(room, playerId, cellId) {
+  // Логика build
+}
+
+// api/game.js
+case 'build': {
+  const result = await handleBuild(room, playerId, body.cellId);
+  if (!result.success) return res.status(400).json(result);
+  await setRoom(roomId, room);
+  return res.json({ success: true, room });
+}
+```
+
+**Статус:** **ЖЕЛАТЕЛЬНО**, улучшит читаемость.
+
+---
+
+### 8.2 **REFACTOR-02: Добавить JSDoc типизацию**
+
+**Пример:**
+
+```javascript
+/**
+ * Calculates rent for a property based on ownership and game state.
+ * @param {Object} room - Game room state
+ * @param {number} cellId - Board cell ID (0-39)
+ * @param {number} diceSum - Sum of dice roll (2-12)
+ * @returns {number} Rent amount in dollars
+ */
+function calculateRent(room, cellId, diceSum) {
+  // ...
+}
+```
+
+**Статус:** **ЖЕЛАТЕЛЬНО**, улучшит поддерживаемость.
+
+---
+
+### 8.3 **REFACTOR-03: Добавить unit-тесты для критичной логики**
+
+**Примеры:**
+
+```javascript
+// tests/logic.test.js
+describe('calculateRent', () => {
+  it('should return doubled rent when owner has full group', () => {
+    const room = { properties: { ... } };
+    const rent = calculateRent(room, 1, 7);
+    expect(rent).toBe(120); // 60 * 2
+  });
+
+  it('should account for houses correctly', () => {
+    // ...
+  });
+});
+```
+
+**Статус:** **ЖЕЛАТЕЛЬНО** для production.
+
+---
+
+### 8.4 **REFACTOR-04: Добавить явное состояние для аукционов**
+
+**Текущее состояние:** `turnPhase === 'auction'` и `room.auction !== null`.
+
+**Предложение:** Создать отдельный класс `Auction`:
+
+```javascript
+class Auction {
+  constructor(cellId, initiatorId, timerDuration) {
+    this.cellId = cellId;
+    this.currentBid = 0;
+    this.currentBidderId = null;
+    this.initiatorId = initiatorId;
+    this.lastBidTime = Date.now();
+    this.timerDuration = timerDuration;
+  }
+
+  isExpired() {
+    return Date.now() - this.lastBidTime >= this.timerDuration;
+  }
+
+  placeBid(playerId, amount) {
+    if (amount <= this.currentBid) throw new Error('Bid too low');
+    this.currentBid = amount;
+    this.currentBidderId = playerId;
+    this.lastBidTime = Date.now();
+  }
+}
+```
+
+**Статус:** **ЖЕЛАТЕЛЬНО**, улучшит структуру.
+
+---
+
+### 8.5 **REFACTOR-05: Обработка ошибок на фронтенде**
+
+**Текущее состояние:**
+
+```javascript
+const result = await safeApiCall('roll', { roomId });
+if (result && result.success) { currentRoom = result.room; renderGame(); }
+```
+
+**Проблема:** Нет обработки ошибок.
+
+**Предложение:**
+
+```javascript
+const result = await safeApiCall('roll', { roomId });
+if (!result) {
+  showError('action-bar', 'Ошибка сети. Попробуйте позже.');
+  return;
+}
+if (!result.success) {
+  showError('action-bar', result.error || 'Ошибка');
+  return;
+}
+currentRoom = result.room;
+renderGame();
+```
+
+**Статус:** **ЖЕЛАТЕЛЬНО**, улучшит UX.
+
+---
+
+## 9. ИТОГОВАЯ ТАБЛИЦА ПРИОРИТЕТОВ
+
+### Критичные (Блокер)
+| # | Название | Файл | Строка | Описание | Действие |
+|---|----------|------|--------|---------|----------|
+| BUG-09 | Игрок выходит из тюрьмы через дубль, но не бросает ещё раз | api/game.js | ~600 | `doublesCount = 0` вместо `doublesCount = 1` | Изменить на 1 |
+| BUG-10 | Нельзя строить, если в группе заложена любая улица | api/game.js | ~1069 | Отсутствует проверка всех улиц в группе | Добавить проверку |
+| BUG-15 | Race condition при одновременном завершении аукциона | api/game.js | ~1161–1190 | Два клиента могут одновременно изменить аукцион | Добавить проверку null перед доступом |
+| ARCH-04 | Отсутствие обработки сетевых ошибок | public/index.html | ~910 | Если сервер недоступен, клиент повиснет | Добавить try-catch и таймауты |
+
+### Высокие (Important)
+| # | Название | Файл | Строка | Описание | Действие |
+|---|----------|------|--------|---------|----------|
+| BUG-02 | Аукцион может зависнуть при переходе между игроками | api/game.js | ~390 | Функция `checkAuctionExpiry()` не вызывается везде | Вызывать в начале каждого маршрута |
+| BUG-16 | Банкротный аукцион не завершается, если очередь пуста | api/game.js | ~430 | Не проверяется условие победы после очереди | Добавить проверку в `startNextBankruptAuction()` |
+| ARCH-05 | Отсутствие механизма проверки условия победы | api/game.js | ~430 | Если все имущество продано, проверка не работает | Добавить явную проверку |
+| SEC-06 | Отсутствие rate limiting | api/game.js | ~1 | Защита от DDoS отсутствует | Добавить middleware |
+
+### Средние (Should Fix)
+| # | Название | Файл | Строка | Описание | Действие |
+|---|----------|------|--------|---------|----------|
+| BUG-06 | Игрок может объявить банкротство, даже если может покрыть долг | api/game.js | ~1287 | Функция `canPlayerRecoverServer()` может быть неправильной | Добавить unit-тесты |
+| GAME-02 | Игрок может построить на ещё заложенной улице в договоре | api/game.js | ~1069 | Отсутствует проверка залога при создании договора | Добавить проверку `!p.mortgaged` |
+| ARCH-03 | Race condition при одновременном поллинге и действии | public/index.html | ~820 | Поллинг может перезаписать состояние | Блокировать поллинг во время действия |
+| UI-02 | Невидимый долг на экране игры | public/index.html | ~880 | Если `turnPhase === 'manage'`, сумма долга не видна | Добавить панель долга |
+| EDGE-01 | Что происходит, если все игроки банкроты? | api/game.js | ~150 | `winner = undefined` | Обработать ничью явно |
+
+### Низкие (Nice to Have)
+| # | Название | Файл | Строка | Описание | Действие |
+|---|----------|------|--------|---------|----------|
+| PERF-02 | Передача полного состояния при поллинге | api/game.js | ~702 | Большой объём данных | Реализовать дельта |
+| UI-01 | Отсутствие индикатора текущей фазы | public/index.html | ~880 | Игрок не знает, почему не может действовать | Добавить подсказку |
+| REFACTOR-01 | Монолит api/game.js | api/game.js | ~1 | 1300+ строк в одном файле | Разделить на модули |
+| REFACTOR-05 | Обработка ошибок на фронтенде | public/index.html | ~910 | Нет обработки `result.error` | Добавить обработку |
+
+---
+
+## 10. КОНКРЕТНЫЕ ИСПРАВЛЕНИЯ
+
+### Исправление BUG-09: Дополнительный ход после дубля из тюрьмы
+
+**Файл:** `api/game.js`, функция `roll()`, строка ~600
+
+**Текущий код:**
+```javascript
+if (currentPlayer.inJail) {
+  if (isDoubles) {
+    currentPlayer.inJail = false;
+    currentPlayer.jailTurns = 0;
+    currentPlayer.doublesCount = 0; // ← ОШИБКА
+    currentPlayer.position = (currentPlayer.position + diceSum) % 40;
+    addNotification(room, `${currentPlayer.name} выбросил дубль и вышел из тюрьмы!`);
+    checkPostMove(room, currentPlayer, diceSum);
+  }
+}
+```
+
+**Исправленный код:**
+```javascript
+if (currentPlayer.inJail) {
+  if (isDoubles) {
+    currentPlayer.inJail = false;
+    currentPlayer.jailTurns = 0;
+    currentPlayer.doublesCount = 1; // ← ИСПРАВЛЕНО: будет ещё один ход
+    currentPlayer.position = (currentPlayer.position + diceSum) % 40;
+    addNotification(room, `${currentPlayer.name} выбросил дубль и вышел из тюрьмы! Ещё один ход.`);
+    checkPostMove(room, currentPlayer, diceSum);
+  }
 }
 ```
 
 ---
 
-## ПРИОРИТИЗИРОВАННЫЙ СПИСОК ИСПРАВЛЕНИЙ
+### Исправление BUG-10: Проверка залога при строительстве
 
-| Приоритет | ID | Описание | Усилие |
-|---|---|---|---|
-| 🔴 P0 | ARCH-01 | Заменить in-memory на Upstash Redis | 2–3ч |
-| 🔴 P0 | SEC-01 | Добавить валидацию Telegram initData | 1–2ч |
-| 🔴 P0 | BUG-02 | Серверный cron/check для аукционного таймера | 2ч |
-| 🔴 P0 | BUG-18 | Фикс turnPhase при банкротстве | 30мин |
-| 🟠 P1 | SEC-02 | XSS-экранирование всех пользовательских данных | 1ч |
-| 🟠 P1 | BUG-06 | Серверная проверка возможности банкротства | 1ч |
-| 🟠 P1 | BUG-13 | Проверка домов в группе при залоге | 30мин |
-| 🟠 P1 | BUG-08 | Проверка deal.members.includes(prop.ownerId) | 30мин |
-| 🟠 P1 | ARCH-02 | Атомарные операции для Redis (optimistic locking) | 3–4ч |
-| 🟠 P1 | SEC-03 | Валидация bid amount (parseInt, >=1) | 15мин |
-| 🟡 P2 | UI-04 | Защита от двойных кликов | 30мин |
-| 🟡 P2 | ARCH-07 | Reconnection logic (сохранять roomId в localStorage) | 1ч |
-| 🟡 P2 | BUG-16/17 | Реализовать аукцион банкротства и оплату transfer | 3–4ч |
-| 🟡 P2 | ARCH-05 | Версионирование состояния (version counter) | 1ч |
-| 🟡 P2 | PERF-02 | Conditional polling (304 Not Modified / version check) | 1ч |
-| 🟢 P3 | REF-01 | Разделение api/game.js на модули | 2ч |
-| 🟢 P3 | PERF-01 | Offscreen canvas для статики | 2ч |
-| 🟢 P3 | UI-01 | Адаптивная доска / зум | 4–6ч |
-| 🟢 P3 | ARCH-04 | WebSocket (Ably/Pusher) вместо polling | 4–6ч |
-| 🟢 P3 | REF-04 | Unit-тесты для game logic | 3–4ч |
-| 🟢 P3 | UI-06 | Haptic feedback и звуки | 1ч |
+**Файл:** `api/game.js`, маршрут `build`, строка ~1069
+
+**Текущий код:**
+```javascript
+if (prop.houses >= 5) return res.status(400).json({ error: 'Max houses reached' });
+if (prop.mortgaged) return res.status(400).json({ error: 'Property is mortgaged' });
+
+// Check even building rule
+const group = COLOR_GROUPS[cell.color];
+const minHouses = Math.min(...group.map(cid => (room.properties[cid]?.houses || 0)));
+if (prop.houses > minHouses) return res.status(400).json({ error: 'Must build evenly' });
+```
+
+**Исправленный код:**
+```javascript
+if (prop.houses >= 5) return res.status(400).json({ error: 'Max houses reached' });
+if (prop.mortgaged) return res.status(400).json({ error: 'Property is mortgaged' });
+
+// BUG-10 fix: Check if any property in the same color group is mortgaged
+const group = COLOR_GROUPS[cell.color];
+const anyMortgaged = group.some(cid => room.properties[cid]?.mortgaged);
+if (anyMortgaged) return res.status(400).json({ error: 'Cannot build: property in group is mortgaged' });
+
+// Check even building rule
+const minHouses = Math.min(...group.map(cid => (room.properties[cid]?.houses || 0)));
+if (prop.houses > minHouses) return res.status(400).json({ error: 'Must build evenly' });
+```
 
 ---
 
-## РЕЗЮМЕ
+### Исправление BUG-15: Race condition в аукционе
 
-Проект представляет собой хороший прототип с полной реализацией основных механик Монополии. Главные блокеры для production-ready состояния:
+**Файл:** `api/game.js`, маршрут `auction_bid`, строка ~1161
 
-Первое — **in-memory storage не работает на Vercel** в принципе. Без Redis проект неработоспособен в деплое. Второе — **отсутствие валидации Telegram initData** делает API полностью открытым для подделки запросов. Третье — **аукционный таймер** зависит от клиентского polling, что ненадёжно. Четвёртое — есть несколько игровых багов (turnPhase при банкротстве, залог с домами в группе, doublesCount не сбрасывается), которые могут привести к "зависанию" игры.
+**Текущий код:**
+```javascript
+case 'auction_bid': {
+  const { roomId } = body;
+  const room = await getRoom(roomId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  if (room.turnPhase !== 'auction' || !room.auction) return res.status(400).json({ error: 'No auction active' });
+  if (playerId === room.auction.initiatorId) return res.status(403).json({ error: 'Initiator cannot bid' });
 
-После исправления P0 и P1 проблем проект будет функционально готов для beta-тестирования. P2 и P3 — это polish для production release.
+  // SEC-03 fix: Validate bid amount
+  const amount = Math.floor(Number(body.amount));
+  if (!Number.isFinite(amount) || amount < 1) {
+    return res.status(400).json({ error: 'Invalid bid amount' });
+  }
+
+  const bidder = getPlayerById(room, playerId);
+  if (!bidder || bidder.bankrupt) return res.status(400).json({ error: 'Cannot bid' });
+  if (amount <= room.auction.currentBid) return res.status(400).json({ error: 'Bid too low' });
+  if (amount > bidder.balance) return res.status(400).json({ error: 'Not enough money' });
+
+  room.auction.currentBid = amount;
+  room.auction.currentBidderId = playerId;
+  room.auction.lastBidTime = Date.now();
+  // ...
+}
+```
+
+**Исправленный код:**
+```javascript
+case 'auction_bid': {
+  const { roomId } = body;
+  const room = await getRoom(roomId);
+  if (!room) return res.status(404).json({ error: 'Room not found' });
+  
+  // BUG-15 fix: Check and auto-complete expired auction before accepting bid
+  checkAuctionExpiry(room);
+  
+  if (room.turnPhase !== 'auction' || !room.auction) {
+    return res.status(400).json({ error: 'No auction active' });
+  }
+  
+  if (playerId === room.auction.initiatorId) {
+    return res.status(403).json({ error: 'Initiator cannot bid' });
+  }
+
+  // SEC-03: Validate bid amount
+  const amount = Math.floor(Number(body.amount));
+  if (!Number.isFinite(amount) || amount < 1) {
+    return res.status(400).json({ error: 'Invalid bid amount' });
+  }
+
+  const bidder = getPlayerById(room, playerId);
+  if (!bidder || bidder.bankrupt) return res.status(400).json({ error: 'Cannot bid' });
+  if (amount <= room.auction.currentBid) return res.status(400).json({ error: 'Bid too low' });
+  if (amount > bidder.balance) return res.status(400).json({ error: 'Not enough money' });
+
+  room.auction.currentBid = amount;
+  room.auction.currentBidderId = playerId;
+  room.auction.lastBidTime = Date.now();
+  // ...
+}
+```
+
+---
+
+### Исправление ARCH-04: Обработка сетевых ошибок на фронтенде
+
+**Файл:** `public/index.html`, функция `apiCall()`, строка ~910
+
+**Текущий код:**
+```javascript
+async function apiCall(endpoint, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (initData) {
+    headers['X-Telegram-Init-Data'] = initData;
+  }
+  const res = await fetch(`${API}/${endpoint}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ ...body, playerId: userId, playerName: userName }),
+  });
+  return await res.json();
+}
+```
+
+**Исправленный код:**
+```javascript
+async function apiCall(endpoint, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (initData) {
+    headers['X-Telegram-Init-Data'] = initData;
+  }
+  
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 сек таймаут
+    
+    const res = await fetch(`${API}/${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...body, playerId: userId, playerName: userName }),
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) {
+      console.error(`API error: HTTP ${res.status}`);
+      return { success: false, error: `Ошибка сервера (${res.status})` };
+    }
+    
+    return await res.json();
+  } catch (err) {
+    console.error(`API error: ${err.message}`);
+    if (err.name === 'AbortError') {
+      return { success: false, error: 'Таймаут подключения' };
+    }
+    return { success: false, error: 'Ошибка сети. Попробуйте позже.' };
+  }
+}
+```
+
+---
+
+### Исправление BUG-16: Завершение банкротного аукциона
+
+**Файл:** `api/game.js`, функция `startNextBankruptAuction()`, строка ~430
+
+**Текущий код:**
+```javascript
+function startNextBankruptAuction(room) {
+  if (!room.bankruptAuctionQueue || room.bankruptAuctionQueue.length === 0) {
+    room.bankruptAuctionQueue = null;
+    room.turnPhase = 'endturn';
+    return;
+  }
+  // ... создание аукциона
+}
+```
+
+**Исправленный код:**
+```javascript
+function startNextBankruptAuction(room) {
+  if (!room.bankruptAuctionQueue || room.bankruptAuctionQueue.length === 0) {
+    room.bankruptAuctionQueue = null;
+    
+    // BUG-16 fix: Check win condition after auction queue is empty
+    const active = getActivePlayers(room);
+    if (active.length <= 1) {
+      room.state = 'finished';
+      room.winner = active[0]?.id || null;
+      room.turnPhase = 'finished';
+      if (active.length === 0) {
+        addNotification(room, 'Все игроки банкроты! Ничья!');
+      } else {
+        addNotification(room, `Игра окончена! Победитель: ${active[0].name}`);
+      }
+    } else {
+      room.turnPhase = 'endturn';
+    }
+    return;
+  }
+  
+  // ... создание аукциона
+}
+```
+
+---
+
+### Исправление UI-02: Панель долга
+
+**Файл:** `public/index.html`, функция `renderGame()`, добавить после `renderActions()`
+
+**Добавить в CSS:**
+```css
+.debt-box {
+  background: #c62828;
+  color: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  text-align: center;
+  margin: 8px 0;
+  font-weight: bold;
+}
+```
+
+**Добавить в renderGame():**
+```javascript
+function renderGame() {
+  if (!currentRoom) return;
+
+  // ... существующий код ...
+
+  // Render debt panel if needed
+  const gameContainer = document.getElementById('game-container') || document.querySelector('.game-container');
+  let debtPanel = document.getElementById('debt-panel');
+  
+  if (currentRoom.turnPhase === 'manage' && currentRoom.debtInfo) {
+    if (!debtPanel) {
+      debtPanel = document.createElement('div');
+      debtPanel.id = 'debt-panel';
+      gameContainer.insertBefore(debtPanel, gameContainer.firstChild);
+    }
+    debtPanel.innerHTML = `
+      <div class="debt-box">
+        <h3>⚠️ ДОЛГ: ${currentRoom.debtInfo.amount}$</h3>
+        <p>${currentRoom.debtInfo.type === 'bank' ? 'Выплатить банку' : 'Выплатить ' + (currentRoom.players.find(p => p.id === currentRoom.debtInfo.creditorId)?.name || '?')}</p>
+        <p style="font-size:0.9em;margin-top:8px;">Продайте дома или заложите имущество</p>
+      </div>
+    `;
+  } else {
+    if (debtPanel) debtPanel.remove();
+  }
+
+  // ... остальной код ...
+}
+```
+
+---
+
+## 11. ИТОГОВЫЙ ЧЕКЛИСТ ПРОВЕРКИ
+
+- [ ] **BUG-09:** Изменить `doublesCount = 0` на `doublesCount = 1` при выходе из тюрьмы через дубль
+- [ ] **BUG-10:** Добавить проверку залога всех улиц в группе при строительстве
+- [ ] **BUG-15:** Вызывать `checkAuctionExpiry()` в начале `auction_bid()`
+- [ ] **BUG-16:** Проверять условие победы в `startNextBankruptAuction()` после опустения очереди
+- [ ] **ARCH-04:** Добавить обработку сетевых ошибок с таймаутами
+- [ ] **SEC-06:** Добавить rate limiting для API
+- [ ] **GAME-02:** Проверять `!p.mortgaged` при создании договора о монополии
+- [ ] **UI-02:** Добавить панель долга в `renderGame()`
+- [ ] **EDGE-01:** Обработать ничью (все игроки банкроты)
+- [ ] **ARCH-03:** Блокировать поллинг во время действия (добавить проверку `actionLock` в интервал)
+- [ ] Добавить unit-тесты для `canPlayerRecoverServer()`
+- [ ] Добавить подтверждение перед критичными действиями (банкротство, аукцион)
+- [ ] Добавить логирование на сервере
+- [ ] Рассмотреть рефакторинг `api/game.js` на модули
+- [ ] Рассмотреть оптимизацию поллинга (дельта вместо полного состояния)
+
+---
+
+## ЗАКЛЮЧЕНИЕ
+
+Проект имеет **крепкую основу**, но содержит **4 критичных багаЕ** (BUG-09, BUG-10, BUG-15, ARCH-04), которые **необходимо исправить перед запуском**. Кроме того, есть **6 высокоприоритетных** проблем, которые могут вызвать проблемы в gameplay.
+
+**Общая оценка кода:** **7/10**
+- ✅ Логика основных механик в порядке
+- ✅ Безопасность Telegram интеграции хорошо продумана
+- ✅ Использование Redis для хранилища — правильное решение
+- ✅ Кэширование на фронтенде и версионирование состояния — умные оптимизации
+- ❌ Обработка edge case'ов неполная
+- ❌ Race conditions в аукционе и параллельных операциях
+- ❌ Отсутствие обработки сетевых ошибок на фронтенде
+- ❌ Монолит требует рефакторинга для maintainability
+
+**Рекомендация:** Сначала исправить критичные баги, затем добавить обработку ошибок и rate limiting перед production-release.
